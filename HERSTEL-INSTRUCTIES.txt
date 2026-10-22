@@ -1,0 +1,19 @@
+PAPIAMENTS MET TANTE - HERSTELVERSIE (TEST)
+
+Deze ZIP vervangt de volledige inhoud van de GitHub-repository (bestanden in de bovenste map).
+Verwijder niet zomaar de bestaande bestanden; werk de gelijknamige bestanden bij en voeg public-config.js toe onder functions/api.
+
+AANGEPAST
+- availability.js geeft nu een foutcode zonder geheime sleutels, bv. SUPABASE_SLOTS_401, SUPABASE_BOOKINGS_400, NETWORK_SLOTS of UNEXPECTED.
+- De exacte Supabase-respons wordt alleen in Cloudflare-logs gezet; niet publiek getoond.
+- De agenda geeft [] terug wanneer er daadwerkelijk geen lestijden zijn.
+- admin.js haalt de publieke Supabase-configuratie automatisch op via /api/public-config. De service_role-sleutel wordt nooit naar de browser gestuurd.
+
+NOG NIET GEREED
+- E-mailboekingen vereisen RESEND_API_KEY, MAIL_FROM en TANTE_EMAIL. De boekingsfunctie blijft uitgeschakeld tot die zijn ingesteld.
+- De beveiliging van de database en echte boekingen moeten getest worden vóór lancering.
+- Vervang de eerder in een screenshot zichtbare service-role-sleutel voor publieke lancering.
+
+NA PUBLICATIE
+Open https://papiaments-met-tante.pages.dev/api/availability?from=2026-11-01&to=2026-12-01
+Kopieer de JSON-melding. Met de code is de oorzaak te herkennen zonder logs.
