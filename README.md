@@ -9,3 +9,6 @@
 - `site/config.js` heeft alleen de publieke Supabase URL en anon/publishable key nodig voor Tante-login.
 - Niet geschikt voor echte boekingen vóór tests van API, RLS, reserveringscapaciteit, overlap, e-mails, spambeveiliging en privacy.
 - De leeftijdsselector bevat 4 t/m 18 en een 19+-optie. Voor exacte leeftijden boven 19 kan die selector later worden uitgebreid.
+
+
+Versie 6: stap 4 bevat alleen locatie en opmerking; stap 5 oudernaam en e-mail. Voer 03-v6-contactvelden.sql uit in Supabase voordat reserveringen worden geactiveerd. Bij thuisles moet Tante het adres achteraf opvragen.
