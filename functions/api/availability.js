@@ -1,136 +1,28 @@
 
-export async function onRequestGet({ request, env }) {
+export async function onRequestGet({request,env}) {
+  const reply=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store'}});
   try {
-    const urlPresent = Boolean(env?.SUPABASE_URL);
-    const keyPresent = Boolean(env?.SUPABASE_SERVICE_ROLE_KEY);
-
-    if (!urlPresent || !keyPresent) {
-      return Response.json(
-        {
-          error: "Server nog niet ingesteld",
-          urlAanwezig: urlPresent,
-          sleutelAanwezig: keyPresent
-        },
-        { status: 503 }
-      );
-    }
-
-    const url = new URL(request.url);
-    const from = url.searchParams.get("from");
-    const to = url.searchParams.get("to");
-
-    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-
-    if (
-      !datePattern.test(from || "") ||
-      !datePattern.test(to || "") ||
-      from >= to
-    ) {
-      return Response.json(
-        { error: "Ongeldige datum" },
-        { status: 400 }
-      );
-    }
-
-    const baseUrl = env.SUPABASE_URL.replace(/\/+$/, "");
-
-    const headers = {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
+    if(!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return reply({error:'Serverconfiguratie ontbreekt',code:'CONFIG_MISSING'},503);
+    const u=new URL(request.url),from=u.searchParams.get('from'),to=u.searchParams.get('to');
+    const valid=x=>/^\d{4}-\d{2}-\d{2}$/.test(x||'') && !Number.isNaN(Date.parse(x+'T00:00:00Z'));
+    if(!valid(from)||!valid(to)||from>=to) return reply({error:'Ongeldige datum',code:'DATE_INVALID'},400);
+    const base=env.SUPABASE_URL.replace(/\/+(rest\/v1)?\/?$/,'');
+    const headers={apikey:env.SUPABASE_ANON_KEY||env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY};
+    const get=async (table,path)=>{
+      let r;
+      try {r=await fetch(base+'/rest/v1/'+path,{headers});}
+      catch(e){throw {code:'NETWORK_'+table,status:502};}
+      if(!r.ok) {console.error('Supabase request failed',table,r.status,(await r.text()).slice(0,600));throw {code:'SUPABASE_'+table+'_'+r.status,status:502};}
+      return r.json();
     };
-
-    async function getData(path) {
-      const response = await fetch(
-        `${baseUrl}/rest/v1/${path}`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        throw new Error("Database niet bereikbaar");
-      }
-
-      return response.json();
-    }
-
-    const slots = await getData(
-      `lesson_slots?select=id,date,start_time,duration_minutes,max_children&date=gte.${from}&date=lt.${to}&order=date.asc,start_time.asc`
-    );
-
-    const bookings = await getData(
-      `bookings?select=slot_id,child_count,location,status&status=eq.bevestigd&lesson_date=gte.${from}&lesson_date=lt.${to}`
-    );
-
-    const booked = new Map();
-
-    for (const booking of bookings) {
-      const current = booked.get(booking.slot_id) || {
-        count: 0,
-        home: false
-      };
-
-      current.count += booking.child_count;
-      current.home ||= booking.location === "thuis";
-
-      booked.set(booking.slot_id, current);
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    const available = slots
-      .filter(slot => slot.date >= today)
-      .filter(slot => {
-        const current = booked.get(slot.id);
-
-        return (
-          !current ||
-          (!current.home && current.count < slot.max_children)
-        );
-      })
-      .filter(slot => {
-        const start = Date.parse(
-          `${slot.date}T${slot.start_time}`
-        );
-
-        const end = start + slot.duration_minutes * 60000;
-
-        return !slots.some(other => {
-          if (other.id === slot.id) return false;
-
-          const otherBooking = booked.get(other.id);
-
-          if (!otherBooking || otherBooking.count === 0) {
-            return false;
-          }
-
-          const otherStart = Date.parse(
-            `${other.date}T${other.start_time}`
-          );
-
-          const otherEnd =
-            otherStart + other.duration_minutes * 60000;
-
-          return start < otherEnd && otherStart < end;
-        });
-      })
-      .map(slot => ({
-        ...slot,
-        remaining:
-          slot.max_children -
-          (booked.get(slot.id)?.count || 0)
-      }));
-
-    return Response.json(available, {
-      headers: {
-        "Cache-Control": "no-store"
-      }
-    });
-
-  } catch (error) {
-    console.error("Availability error:", error.message);
-
-    return Response.json(
-      { error: "Agenda tijdelijk niet beschikbaar" },
-      { status: 500 }
-    );
-  }
+    const slots=await get('SLOTS',`lesson_slots?select=id,date,start_time,duration_minutes,max_children&date=gte.${from}&date=lt.${to}&order=date.asc,start_time.asc`);
+    const bookings=await get('BOOKINGS',`bookings?select=slot_id,child_count,location,status&status=eq.bevestigd&lesson_date=gte.${from}&lesson_date=lt.${to}`);
+    const booked=new Map();for(const b of bookings){const x=booked.get(b.slot_id)||{count:0,home:false};x.count+=Number(b.child_count)||0;x.home ||=b.location==='thuis';booked.set(b.slot_id,x)}
+    const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Amsterdam',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    const active=slots.filter(s=>s.date>=today).filter(s=>{const b=booked.get(s.id);return !b||(!b.home&&b.count<s.max_children)}).filter(s=>{
+      const start=Date.parse(s.date+'T'+s.start_time),end=start+s.duration_minutes*60000;
+      return !slots.some(o=>o.id!==s.id&&(booked.get(o.id)?.count||0)>0&&start<Date.parse(o.date+'T'+o.start_time)+o.duration_minutes*60000&&Date.parse(o.date+'T'+o.start_time)<end);
+    }).map(s=>({...s,remaining:s.max_children-(booked.get(s.id)?.count||0)}));
+    return reply(active);
+  }catch(e){console.error('Availability failure',e);return reply({error:'Agenda tijdelijk niet beschikbaar',code:e?.code||'UNEXPECTED'},e?.status||500)}
 }
