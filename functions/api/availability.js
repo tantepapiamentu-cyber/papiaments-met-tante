@@ -9,7 +9,6 @@ export async function onRequestGet({ request, env }) {
     });
 
   try {
-    // Controleer of de serverinstellingen aanwezig zijn.
     if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
       return reply(
         {
@@ -20,7 +19,6 @@ export async function onRequestGet({ request, env }) {
       );
     }
 
-    // Lees en controleer de datums.
     const url = new URL(request.url);
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to");
@@ -39,17 +37,14 @@ export async function onRequestGet({ request, env }) {
       );
     }
 
-    // Supabase-instellingen.
     const baseUrl = env.SUPABASE_URL.replace(/\/+$/, "");
 
-    // Gebruik voor beide headers dezelfde service_role-sleutel.
     const headers = {
       apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`
     };
 
-    // Haal gegevens veilig op uit Supabase.
-    async function getData(table, path) {
+    async function getData(name, path) {
       let response;
 
       try {
@@ -58,10 +53,8 @@ export async function onRequestGet({ request, env }) {
           { headers }
         );
       } catch (error) {
-        console.error("Supabase network error:", table);
-
         throw {
-          code: `NETWORK_${table}`,
+          code: `NETWORK_${name}`,
           status: 502
         };
       }
@@ -71,13 +64,13 @@ export async function onRequestGet({ request, env }) {
 
         console.error(
           "Supabase request failed:",
-          table,
+          name,
           response.status,
-          details.slice(0, 600)
+          details.slice(0, 400)
         );
 
         throw {
-          code: `SUPABASE_${table}_${response.status}`,
+          code: `SUPABASE_${name}_${response.status}`,
           status: 502
         };
       }
@@ -85,19 +78,50 @@ export async function onRequestGet({ request, env }) {
       return response.json();
     }
 
-    // Beschikbare lesmomenten ophalen.
-    const slots = await getData(
-      "SLOTS",
-      `lesson_slots?select=id,date,start_time,duration_minutes,max_children&date=gte.${from}&date=lt.${to}&order=date.asc,start_time.asc`
+    // Zorg dat de vaste wekelijkse lestijden
+    // automatisch worden aangevuld.
+    const generation = await fetch(
+      `${baseUrl}/rest/v1/rpc/refresh_weekly_lesson_slots`,
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json"
+        },
+        body: "{}"
+      }
     );
 
-    // Bestaande bevestigde boekingen ophalen.
-    const bookings = await getData(
-      "BOOKINGS",
-      `bookings?select=slot_id,child_count,location,status&status=eq.bevestigd&lesson_date=gte.${from}&lesson_date=lt.${to}`
-    );
+    if (!generation.ok) {
+      console.error(
+        "Weekly generation failed:",
+        generation.status,
+        (await generation.text()).slice(0, 400)
+      );
 
-    // Bereken hoeveel kinderen per lesmoment zijn geboekt.
+      throw {
+        code: `WEEKLY_GENERATION_${generation.status}`,
+        status: 502
+      };
+    }
+
+    // Haal lestijden, boekingen en blokkades op.
+    const [slots, bookings, blocks] = await Promise.all([
+      getData(
+        "SLOTS",
+        `lesson_slots?select=id,date,start_time,duration_minutes,max_children&date=gte.${from}&date=lt.${to}&order=date.asc,start_time.asc`
+      ),
+      getData(
+        "BOOKINGS",
+        `bookings?select=slot_id,child_count,location,status&status=eq.bevestigd&lesson_date=gte.${from}&lesson_date=lt.${to}`
+      ),
+      getData(
+        "BLOCKS",
+        `lesson_blocks?select=day,part&day=gte.${from}&day=lt.${to}`
+      )
+    ]);
+
+    // Tel bestaande boekingen per lestijd.
     const booked = new Map();
 
     for (const booking of bookings) {
@@ -115,7 +139,17 @@ export async function onRequestGet({ request, env }) {
       booked.set(booking.slot_id, current);
     }
 
-    // Gebruik de Nederlandse datum.
+    // Verzamel geblokkeerde dagdelen.
+    const blockMap = new Map();
+
+    for (const block of blocks) {
+      if (!blockMap.has(block.day)) {
+        blockMap.set(block.day, new Set());
+      }
+
+      blockMap.get(block.day).add(block.part);
+    }
+
     const today = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Amsterdam",
       year: "numeric",
@@ -123,9 +157,32 @@ export async function onRequestGet({ request, env }) {
       day: "2-digit"
     }).format(new Date());
 
-    // Filter de beschikbare lestijden.
+    function intersectsBlockedPart(slot, part) {
+      const start =
+        Number(slot.start_time.slice(0, 2)) * 60 +
+        Number(slot.start_time.slice(3, 5));
+
+      const end = start + Number(slot.duration_minutes);
+
+      if (part === "morning") {
+        return start < 720;
+      }
+
+      return end > 720;
+    }
+
+    // Bereken welke lestijden ouders mogen boeken.
     const available = slots
       .filter((slot) => slot.date >= today)
+
+      .filter((slot) => {
+        return !["morning", "afternoon"].some((part) => {
+          return (
+            blockMap.get(slot.date)?.has(part) &&
+            intersectsBlockedPart(slot, part)
+          );
+        });
+      })
 
       .filter((slot) => {
         const current = booked.get(slot.id);
@@ -134,7 +191,7 @@ export async function onRequestGet({ request, env }) {
           !current ||
           (
             !current.home &&
-            current.count < slot.max_children
+            current.count < Number(slot.max_children)
           )
         );
       })
@@ -145,7 +202,7 @@ export async function onRequestGet({ request, env }) {
         );
 
         const end =
-          start + slot.duration_minutes * 60000;
+          start + Number(slot.duration_minutes) * 60000;
 
         return !slots.some((other) => {
           if (other.id === slot.id) {
@@ -163,7 +220,8 @@ export async function onRequestGet({ request, env }) {
           );
 
           const otherEnd =
-            otherStart + other.duration_minutes * 60000;
+            otherStart +
+            Number(other.duration_minutes) * 60000;
 
           return (
             start < otherEnd &&
@@ -175,11 +233,15 @@ export async function onRequestGet({ request, env }) {
       .map((slot) => ({
         ...slot,
         remaining:
-          slot.max_children -
+          Number(slot.max_children) -
           (booked.get(slot.id)?.count || 0)
       }));
 
-    return reply(available);
+    // De ouderpagina verwacht precies deze indeling.
+    return reply({
+      slots: available,
+      blocked: blocks
+    });
 
   } catch (error) {
     console.error("Availability failure:", error);
@@ -193,4 +255,3 @@ export async function onRequestGet({ request, env }) {
     );
   }
 }
-
