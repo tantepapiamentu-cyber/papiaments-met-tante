@@ -4,6 +4,7 @@ let token = "";
 let slots = [];
 let reservations = [];
 let blocks = [];
+let weeklyHours = [];
 const today = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Amsterdam',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 let month = today().slice(0,7);
 let selectedDay = today();
@@ -18,7 +19,7 @@ async function auth(path,body){const {url,key}=config();const r=await fetch(`${u
 async function db(path,opts={}){const {url,key}=config();if(!token)throw Error('Niet ingelogd');const r=await fetch(`${url}/rest/v1/${path}`,{...opts,headers:{apikey:key,Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(opts.headers||{})}});const v=await parse(r);if(!r.ok)throw Error(err(v,`Databasefout (${r.status})`));return v}
 function node(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
 function empty(container,text){container.replaceChildren(node('div','empty-state',text))}
-function tab(name){document.querySelectorAll('.tab').forEach(b=>{const on=b.dataset.tab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on))});document.querySelectorAll('.tab-panel').forEach(p=>p.hidden=p.dataset.panel!==name);if(name==='bookings')renderBookings();if(name==='add')renderOpenSlots()}
+function tab(name){document.querySelectorAll('.tab').forEach(b=>{const on=b.dataset.tab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on))});document.querySelectorAll('.tab-panel').forEach(p=>p.hidden=p.dataset.panel!==name);if(name==='bookings')renderBookings();if(name==='add')renderOpenSlots();if(name==='weekly')renderWeekly()}
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));
 $('#login').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#login button[type=submit]');btn.disabled=true;msg('Bezig met inloggen...');try{const v=await auth('token?grant_type=password',{email:$('#email').value.trim(),password:$('#password').value});token=v.access_token;if(!token)throw Error('Geen inlogsessie ontvangen');const ok=await db('rpc/is_tante_admin',{method:'POST',body:'{}'});if(ok!==true)throw Error('Dit account heeft geen beheerdersrechten');$('#loginCard').hidden=true;$('#panel').hidden=false;$('#logout').hidden=false;msg('Welkom terug, Tante! 🌺');await load()}catch(ex){token='';msg(ex.message,true)}finally{btn.disabled=false}});
 $('#logout').addEventListener('click',()=>location.reload());
@@ -29,7 +30,7 @@ function shiftMonth(n){const [y,m]=month.split('-').map(Number);const d=new Date
 $('#bookingSearch').addEventListener('input',renderBookings);
 $('#bookingFilter').addEventListener('change',renderBookings);
 $('#add').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#add button[type=submit]');btn.disabled=true;try{const date=$('#date').value,start_time=$('#time').value,duration_minutes=Number($('#durationMinutes').value);if(!date||!start_time||![30,60].includes(duration_minutes))throw Error('Controleer datum, tijd en lesduur.');if(date<today())throw Error('Kies een datum vanaf vandaag.');if(blocks.some(b=>b.day===date&&((b.part==='morning'&&Number(start_time.slice(0,2))<12)||(b.part==='afternoon'&&Number(start_time.slice(0,2))*60+Number(start_time.slice(3,5))+duration_minutes>720))))throw Error('Dit dagdeel is niet beschikbaar. Maak het eerst beschikbaar in de agenda.');await db('lesson_slots',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({date,start_time,duration_minutes})});month=date.slice(0,7);selectedDay=date;msg('Gelukt! De lestijd is toegevoegd. 🌺');await load();tab('agenda')}catch(ex){msg('Toevoegen mislukt: '+ex.message,true)}finally{btn.disabled=false}});
-async function load(){try{const [s,b,bl]=await Promise.all([db('lesson_slots?select=id,date,start_time,duration_minutes,max_children&order=date.asc,start_time.asc&limit=1000'),db('bookings?select=id,slot_id,lesson_date,start_time,location,parent_name,parent_email,parent_phone,status,total_eur,child_count,booking_children(child_name,age)&order=lesson_date.asc,start_time.asc&limit=1000'),db('lesson_blocks?select=day,part&limit=2000')]);slots=s||[];reservations=b||[];blocks=bl||[];renderStats();renderCalendar();renderDay();renderBookings();renderOpenSlots()}catch(ex){msg('Gegevens laden mislukt: '+ex.message,true)}}
+async function load(){try{const [s,b,bl,w]=await Promise.all([db('lesson_slots?select=id,date,start_time,duration_minutes,max_children&order=date.asc,start_time.asc&limit=1000'),db('bookings?select=id,slot_id,lesson_date,start_time,location,parent_name,parent_email,parent_phone,status,total_eur,child_count,booking_children(child_name,age)&order=lesson_date.asc,start_time.asc&limit=1000'),db('lesson_blocks?select=day,part&limit=2000'),db('weekly_lesson_hours?select=weekday,enabled,start_time,end_time&order=weekday.asc')]);slots=s||[];reservations=b||[];blocks=bl||[];weeklyHours=w||[];renderWeekly();renderStats();renderCalendar();renderDay();renderBookings();renderOpenSlots()}catch(ex){msg('Gegevens laden mislukt: '+ex.message,true)}}
 function activeBookings(slotId){return reservations.filter(b=>String(b.slot_id)===String(slotId)&&b.status==='bevestigd')}
 function occupied(s){return activeBookings(s.id).reduce((sum,b)=>sum+(Number(b.child_count)||b.booking_children?.length||0),0)}
 function renderStats(){const upcoming=reservations.filter(b=>b.lesson_date>=today()&&b.status==='bevestigd');$('#statLessons').textContent=new Set(upcoming.map(b=>b.slot_id)).size;$('#statChildren').textContent=upcoming.reduce((sum,b)=>sum+(Number(b.child_count)||b.booking_children?.length||0),0);$('#statSlots').textContent=slots.filter(s=>s.date>=today()&&occupied(s)<(s.max_children||6)&&!activeBookings(s.id).some(b=>b.location==='thuis')).length;$('#bookingBadge').textContent=upcoming.length?`(${upcoming.length})`:''}
@@ -59,3 +60,37 @@ async function changeBlock(part,block){
 }
 document.querySelectorAll('[data-block]').forEach(b=>b.addEventListener('click',()=>changeBlock(b.dataset.block,true)));
 $('#unblockDay').addEventListener('click',()=>changeBlock('full',false));
+
+// Vaste weekplanning: één keer instellen, automatisch 60-minutenmomenten.
+const weekdayNames=['Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag','Zondag'];
+function renderWeekly(){
+ const el=$('#weeklyDays');if(!el)return;el.replaceChildren();
+ for(let i=0;i<7;i++){
+  const w=weeklyHours.find(x=>Number(x.weekday)===i)||{weekday:i,enabled:false,start_time:'09:00',end_time:'17:00'};
+  const row=node('div','weekly-row');row.dataset.weekday=String(i);
+  const title=node('label','weekly-toggle');
+  const enabled=document.createElement('input');enabled.type='checkbox';enabled.className='weekly-enabled';enabled.checked=Boolean(w.enabled);
+  title.append(enabled,document.createTextNode(' '+weekdayNames[i]));row.append(title);
+  const hours=node('div','weekly-hours');
+  for(const [label,klass,val] of [['Van','weekly-from',w.start_time],['Tot','weekly-to',w.end_time]]){
+   const l=node('label','',label);const input=document.createElement('input');input.type='time';input.step=3600;input.className=klass;input.value=String(val).slice(0,5);l.append(input);hours.append(l);
+  }
+  const update=()=>{hours.hidden=!enabled.checked;row.classList.toggle('weekly-off',!enabled.checked)};
+  enabled.addEventListener('change',update);update();row.append(hours);el.append(row);
+ }
+}
+$('#weeklyForm').addEventListener('submit',async event=>{
+ event.preventDefault();const button=$('#weeklySave');button.disabled=true;
+ try{
+  const hours=[...document.querySelectorAll('.weekly-row')].map(row=>({
+   weekday:Number(row.dataset.weekday),enabled:row.querySelector('.weekly-enabled').checked,
+   start_time:row.querySelector('.weekly-from').value,end_time:row.querySelector('.weekly-to').value
+  }));
+  for(const h of hours){
+   if(!h.start_time||!h.end_time||h.start_time>=h.end_time||!/^\d{2}:00$/.test(h.start_time)||!/^\d{2}:00$/.test(h.end_time))
+    throw Error('Kies hele uren, bijvoorbeeld 09:00 tot 17:00.');
+  }
+  await db('rpc/save_weekly_lesson_hours',{method:'POST',body:JSON.stringify({p_hours:hours})});
+  msg('Gelukt! Je vaste lestijden staan in de agenda. 🌺');await load();tab('agenda');
+ }catch(e){msg('Opslaan mislukt: '+e.message,true)}finally{button.disabled=false}
+});

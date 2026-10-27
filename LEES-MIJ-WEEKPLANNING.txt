@@ -1,0 +1,22 @@
+PAPIAMENTS MET TANTE — AUTOMATISCHE WEEKPLANNING
+
+1. Supabase > SQL Editor > New query: voer de volledige inhoud van 05-vaste-weekplanning.sql EEN KEER uit.
+2. GitHub: vervang deze bestaande bestanden (op exact dezelfde plaats):
+   admin.html
+   admin.js
+   admin.css
+   functions/api/availability.js
+3. Wacht tot Cloudflare de nieuwste commit heeft gepubliceerd.
+4. Log in op /admin.html en open 'Mijn vaste lestijden'. Vink dagen aan, vul begin- en eindtijd in hele uren in en klik op 'Vaste lestijden opslaan'.
+5. Open de ouderwebsite en kijk of de automatisch aangemaakte lestijden zichtbaar zijn.
+6. Test daarna: hele dag blokkeren, ochtend/middag blokkeren, blokkade opheffen, proefboeking en bevestigingsmails.
+
+De standaardinstelling is alles uit: Tante bepaalt zelf welke weekdagen aan staan.
+Er worden automatisch lestijden van 60 minuten aangemaakt voor de komende 120 dagen, met begin op ieder heel uur.
+4-jarige kinderen volgen 30 minuten, kinderen van 5 jaar of ouder 60 minuten.
+Bestaande boekingen worden niet verwijderd; bestaande handmatige tijden blijven staan.
+De kalender wordt bij iedere ouderaanvraag bijgewerkt voor de komende 120 dagen.
+Voor e-mailbevestigingen zijn Resend-variabelen nog vereist; zonder deze variabelen accepteert /api/book geen boekingen.
+
+BELANGRIJK: Deze update is statisch op syntax gecontroleerd, maar niet live op jullie Supabase-project uitgevoerd.
+Maak een back-up van de huidige bestanden en test alles voordat je echte ouders laat boeken.
