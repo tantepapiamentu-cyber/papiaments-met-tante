@@ -10,3 +10,17 @@
 
 /* Vaste wekelijkse lestijden */
 .weekly-days{display:grid;gap:12px;margin:16px 0 24px}.weekly-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:16px;border:1px solid #e7ddd0;border-radius:16px;background:#fffdf9}.weekly-row.weekly-off{background:#f6f5f1}.weekly-toggle{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.05rem;color:#124c50}.weekly-toggle input{width:20px;height:20px;accent-color:#078686}.weekly-hours{display:flex;gap:12px;flex-wrap:wrap}.weekly-hours label{display:flex;flex-direction:column;gap:5px;font-size:.85rem;font-weight:700}.weekly-hours input{min-width:120px;padding:9px;border:1px solid #b8d4ce;border-radius:10px;font-size:1rem}@media(max-width:540px){.weekly-row{align-items:stretch;flex-direction:column}.weekly-hours{display:grid;grid-template-columns:1fr 1fr}.weekly-hours input{width:100%;min-width:0}}
+
+/* Uitleg bij Mijn lesagenda */
+.agenda-info-button{display:inline-grid;place-items:center;vertical-align:middle;width:34px;height:34px;margin-left:8px;border:1px solid #b9dfd8;border-radius:50%;background:#e9f7f2;color:#007e7a;font-size:23px;font-weight:700;cursor:pointer}
+.agenda-info-button:hover,.agenda-info-button:focus-visible{background:#d4f0e8;outline-offset:3px}
+.agenda-help-dialog{box-sizing:border-box;width:min(620px,calc(100% - 24px));max-height:min(85vh,850px);padding:0;border:0;border-radius:22px;box-shadow:0 22px 80px #0004;color:#173d44;background:#fffdf8}
+.agenda-help-dialog::backdrop{background:#102f35a8}
+.agenda-help-header,.agenda-help-footer{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;background:#f7f4eb}
+.agenda-help-header h2{font-size:1.35rem;margin:0}
+.agenda-help-close{border:0;background:transparent;font-size:24px;cursor:pointer;color:#19474a;padding:5px 10px}
+.agenda-help-content{padding:8px 22px 18px;overflow-y:auto;max-height:60vh;line-height:1.6}
+.agenda-help-content h3{margin:20px 0 6px;font-size:1.08rem;color:#006f71}
+.agenda-help-content p{margin:6px 0 12px}
+.agenda-help-footer{justify-content:flex-end}
+@media(max-width:600px){.agenda-help-header,.agenda-help-footer{padding:14px 16px}.agenda-help-content{padding:8px 16px}.agenda-help-header h2{font-size:1.1rem}}
