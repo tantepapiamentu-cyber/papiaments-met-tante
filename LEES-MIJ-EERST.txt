@@ -1,0 +1,13 @@
+PAPIAMENTS MET TANTE — KALENDER BLOKKEREN
+
+1. Voer EENMALIG 04-kalender-blokkades.sql uit in Supabase SQL Editor.
+2. Upload/vervang in GitHub de volgende bestanden op dezelfde paden:
+   admin.html, admin.js, admin.css, app.js, style.css, functions/api/availability.js
+3. Wacht op succesvolle Cloudflare-publicatie.
+4. Test: log in bij Tante; klik een dag; kies hele dag/ochtend/middag niet beschikbaar.
+5. Controleer op de oudersite: rood = niet beschikbaar, groen = beschikbaar.
+6. Test ook het terug beschikbaar maken.
+
+BELANGRIJK: bestaande boekingen worden niet geannuleerd. Bij een bestaande boeking weigert de database een conflicterende blokkade. De boekings-trigger weigert ook boekingen voor geblokkeerde dagdelen.
+
+Dit is niet live end-to-end getest op jouw Supabase-account. Publiceer geen echte boekingen voordat e-mail/Resend en een proefboeking gecontroleerd zijn.
