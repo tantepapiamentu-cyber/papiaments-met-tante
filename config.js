@@ -1,3 +1,6 @@
-// Vul deze twee publieke waarden in vanuit Supabase > Project Settings > API.
-// Gebruik uitsluitend de anon/publishable key, NOOIT de service_role/secret key.
-window.APP_CONFIG = { supabaseUrl: "", supabaseAnonKey: "" };
+
+window.APP_CONFIG = {
+  supabaseUrl: "https://apabfncxquipgylwxvtc.supabase.co",
+  supabaseAnonKey: "VUL_HIER_JE_SUPABASE_ANON_KEY_IN"
+};
+
