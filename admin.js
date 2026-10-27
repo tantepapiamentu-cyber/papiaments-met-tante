@@ -1,1 +1,337 @@
-const cfg=window.APP_CONFIG||{},status=document.querySelector('#status');let token='';const msg=s=>status.textContent=s;async function auth(path,body){const r=await fetch(cfg.supabaseUrl+'/auth/v1/'+path,{method:'POST',headers:{apikey:cfg.supabaseAnonKey,'Content-Type':'application/json'},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw Error(v.msg||v.error_description||v.message||'Inloggen mislukt');return v}async function db(path,opts={}){const r=await fetch(cfg.supabaseUrl+'/rest/v1/'+path,{...opts,headers:{apikey:cfg.supabaseAnonKey,Authorization:'Bearer '+token,'Content-Type':'application/json',...(opts.headers||{})}});const t=await r.text();if(!r.ok)throw Error(t);return t?JSON.parse(t):null}document.querySelector('#login').onsubmit=async e=>{e.preventDefault();try{if(!cfg.supabaseUrl||!cfg.supabaseAnonKey){const r=await fetch('/api/public-config');if(!r.ok)throw Error('Configuratie niet beschikbaar');Object.assign(cfg,await r.json())}if(!cfg.supabaseUrl||!cfg.supabaseAnonKey)throw Error('Supabase-configuratie ontbreekt');const v=await auth('token?grant_type=password',{email:document.querySelector('#email').value,password:document.querySelector('#password').value});token=v.access_token;const r=await db('rpc/is_tante_admin',{method:'POST',body:'{}'});if(r!==true)throw Error('Dit account is geen beheerder');document.querySelector('#login').hidden=true;document.querySelector('#panel').hidden=false;msg('Ingelogd');await load()}catch(err){msg(err.message)}};document.querySelector('#logout').onclick=()=>location.reload();document.querySelector('#add').onsubmit=async e=>{e.preventDefault();try{await db('lesson_slots',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({date:document.querySelector('#date').value,start_time:document.querySelector('#time').value,duration_minutes:Number(document.querySelector('#durationMinutes').value)})});msg('Tijd toegevoegd');await load()}catch(err){msg('Toevoegen mislukt: '+err.message)}};async function load(){try{const [s,b]=await Promise.all([db('lesson_slots?select=id,date,start_time,duration_minutes&order=date.asc,start_time.asc&limit=150'),db('bookings?select=id,slot_id,lesson_date,start_time,location,parent_name,parent_email,parent_phone,status,total_eur,booking_children(child_name,age)&order=lesson_date.asc,start_time.asc&limit=150')]);const list=document.querySelector('#openSlots');list.replaceChildren();for(const x of s){const p=document.createElement('p');p.textContent=`${x.date} ${x.start_time.slice(0,5)} (${x.duration_minutes} min) `;const btn=document.createElement('button');btn.textContent='Verwijderen';btn.onclick=async()=>{if(!confirm('Tijd verwijderen? Bestaande boekingen moeten eerst worden afgehandeld.'))return;try{await db('lesson_slots?id=eq.'+x.id,{method:'DELETE'});await load()}catch(e){msg('Verwijderen mislukt: '+e.message)}};p.append(btn);list.append(p)}const bookings=document.querySelector('#bookings');bookings.replaceChildren();for(const x of b){const p=document.createElement('p');const kids=(x.booking_children||[]).map(c=>`${c.child_name} (${c.age})`).join(', ');p.textContent=`${x.lesson_date} ${x.start_time.slice(0,5)} · ${kids} · ${x.parent_name} · ${x.parent_email} · ${x.parent_phone} · €${x.total_eur} · ${x.status}`;bookings.append(p)}if(!b.length)bookings.textContent='Nog geen afspraken.'}catch(e){msg('Laden mislukt: '+e.message)}}
+
+const cfg = window.APP_CONFIG || {};
+
+const statusElement = document.querySelector("#status");
+const loginForm = document.querySelector("#login");
+const panel = document.querySelector("#panel");
+
+let token = "";
+
+function msg(message) {
+  statusElement.textContent = message;
+}
+
+function getConfig() {
+  const url = String(cfg.supabaseUrl || "").trim();
+  const key = String(cfg.supabaseAnonKey || "").trim();
+
+  if (!url || !key) {
+    throw new Error("Supabase-configuratie ontbreekt.");
+  }
+
+  if (!url.startsWith("https://")) {
+    throw new Error("De Supabase-URL is ongeldig.");
+  }
+
+  return {
+    url: url.replace(/\/+$/, ""),
+    key
+  };
+}
+
+async function readResponse(response) {
+  const text = await response.text();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(
+      "De server geeft geen geldig JSON-antwoord. Controleer de API-URL."
+    );
+  }
+}
+
+function getErrorMessage(data, fallback) {
+  if (!data || typeof data !== "object") {
+    return fallback;
+  }
+
+  return (
+    data.msg ||
+    data.error_description ||
+    data.message ||
+    data.error ||
+    fallback
+  );
+}
+
+async function auth(path, body) {
+  const { url, key } = getConfig();
+
+  const response = await fetch(
+    `${url}/auth/v1/${path}`,
+    {
+      method: "POST",
+      headers: {
+        apikey: key,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    }
+  );
+
+  const data = await readResponse(response);
+
+  if (!response.ok) {
+    if (
+      response.status === 401 ||
+      response.status === 403
+    ) {
+      throw new Error(
+        getErrorMessage(
+          data,
+          "Inloggen geweigerd. Controleer de API-sleutel en inloggegevens."
+        )
+      );
+    }
+
+    throw new Error(
+      getErrorMessage(
+        data,
+        `Inloggen mislukt (HTTP ${response.status}).`
+      )
+    );
+  }
+
+  return data;
+}
+
+async function db(path, options = {}) {
+  const { url, key } = getConfig();
+
+  if (!token) {
+    throw new Error("Je bent niet ingelogd.");
+  }
+
+  const response = await fetch(
+    `${url}/rest/v1/${path}`,
+    {
+      ...options,
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {})
+      }
+    }
+  );
+
+  const data = await readResponse(response);
+
+  if (!response.ok) {
+    throw new Error(
+      getErrorMessage(
+        data,
+        `Databasefout (HTTP ${response.status}).`
+      )
+    );
+  }
+
+  return data;
+}
+
+loginForm.onsubmit = async (event) => {
+  event.preventDefault();
+
+  msg("Bezig met inloggen...");
+
+  try {
+    getConfig();
+
+    const email = document.querySelector("#email").value.trim();
+    const password = document.querySelector("#password").value;
+
+    if (!email || !password) {
+      throw new Error("Vul je e-mailadres en wachtwoord in.");
+    }
+
+    const session = await auth(
+      "token?grant_type=password",
+      {
+        email,
+        password
+      }
+    );
+
+    if (!session || !session.access_token) {
+      throw new Error(
+        "Supabase heeft geen geldige inlogsessie teruggegeven."
+      );
+    }
+
+    token = session.access_token;
+
+    const isAdmin = await db(
+      "rpc/is_tante_admin",
+      {
+        method: "POST",
+        body: "{}"
+      }
+    );
+
+    if (isAdmin !== true) {
+      token = "";
+
+      throw new Error(
+        "Dit account heeft geen beheerdersrechten."
+      );
+    }
+
+    loginForm.hidden = true;
+    panel.hidden = false;
+
+    msg("Succesvol ingelogd.");
+
+    await load();
+
+  } catch (error) {
+    token = "";
+    msg(error.message || "Inloggen mislukt.");
+  }
+};
+
+document.querySelector("#logout").onclick = () => {
+  token = "";
+  window.location.reload();
+};
+
+document.querySelector("#add").onsubmit = async (event) => {
+  event.preventDefault();
+
+  try {
+    const date = document.querySelector("#date").value;
+    const startTime = document.querySelector("#time").value;
+    const duration = Number(
+      document.querySelector("#durationMinutes").value
+    );
+
+    if (!date || !startTime) {
+      throw new Error("Vul een datum en tijd in.");
+    }
+
+    if (![30, 60].includes(duration)) {
+      throw new Error("Kies 30 of 60 minuten.");
+    }
+
+    await db(
+      "lesson_slots",
+      {
+        method: "POST",
+        headers: {
+          Prefer: "return=minimal"
+        },
+        body: JSON.stringify({
+          date,
+          start_time: startTime,
+          duration_minutes: duration
+        })
+      }
+    );
+
+    msg("Lesmoment toegevoegd.");
+
+    await load();
+
+  } catch (error) {
+    msg("Toevoegen mislukt: " + error.message);
+  }
+};
+
+async function load() {
+  try {
+    const [slots, reservations] = await Promise.all([
+      db(
+        "lesson_slots?select=id,date,start_time,duration_minutes&order=date.asc,start_time.asc&limit=150"
+      ),
+      db(
+        "bookings?select=id,slot_id,lesson_date,start_time,location,parent_name,parent_email,parent_phone,status,total_eur,booking_children(child_name,age)&order=lesson_date.asc,start_time.asc&limit=150"
+      )
+    ]);
+
+    const slotsElement = document.querySelector("#openSlots");
+    slotsElement.replaceChildren();
+
+    for (const slot of slots) {
+      const paragraph = document.createElement("p");
+
+      paragraph.textContent =
+        `${slot.date} ${slot.start_time.slice(0, 5)} ` +
+        `(${slot.duration_minutes} min) `;
+
+      const button = document.createElement("button");
+      button.textContent = "Verwijderen";
+
+      button.onclick = async () => {
+        const confirmed = confirm(
+          "Weet je zeker dat je dit lesmoment wilt verwijderen? " +
+          "Bestaande boekingen moeten eerst worden afgehandeld."
+        );
+
+        if (!confirmed) {
+          return;
+        }
+
+        try {
+          await db(
+            `lesson_slots?id=eq.${slot.id}`,
+            {
+              method: "DELETE"
+            }
+          );
+
+          msg("Lesmoment verwijderd.");
+          await load();
+
+        } catch (error) {
+          msg(
+            "Verwijderen mislukt: " + error.message
+          );
+        }
+      };
+
+      paragraph.appendChild(button);
+      slotsElement.appendChild(paragraph);
+    }
+
+    const bookingsElement = document.querySelector("#bookings");
+    bookingsElement.replaceChildren();
+
+    for (const reservation of reservations) {
+      const paragraph = document.createElement("p");
+
+      const children = (
+        reservation.booking_children || []
+      )
+        .map(
+          (child) =>
+            `${child.child_name} (${child.age} jaar)`
+        )
+        .join(", ");
+
+      paragraph.textContent = [
+        reservation.lesson_date,
+        reservation.start_time.slice(0, 5),
+        children,
+        reservation.parent_name,
+        reservation.parent_email,
+        reservation.location,
+        `€${reservation.total_eur}`,
+        reservation.status
+      ].filter(Boolean).join(" · ");
+
+      bookingsElement.appendChild(paragraph);
+    }
+
+    if (!reservations.length) {
+      bookingsElement.textContent =
+        "Nog geen afspraken.";
+    }
+
+  } catch (error) {
+    msg("Laden mislukt: " + error.message);
+  }
+}
