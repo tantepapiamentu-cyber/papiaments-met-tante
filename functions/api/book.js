@@ -1,1 +1,155 @@
-export async function onRequestPost({request,env}){const fail=(m,s=400)=>Response.json({error:m},{status:s});try{if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY||!env.RESEND_API_KEY||!env.MAIL_FROM||!env.TANTE_EMAIL)return fail('Boeken is nog niet geactiveerd',503);if(Number(request.headers.get('content-length')||0)>12000)return fail('Te veel gegevens',413);const p=await request.json();if(p.website)return fail('Ongeldige aanvraag');if(!Number.isInteger(p.slot_id)||!Array.isArray(p.children)||p.children.length<1||p.children.length>6)return fail('Controleer de kinderen');const headers={'Content-Type':'application/json',apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY};const rpc=await fetch(env.SUPABASE_URL+'/rest/v1/rpc/reserve_lesson_internal',{method:'POST',headers,body:JSON.stringify({p_slot_id:p.slot_id,p_children:p.children,p_location:p.location,p_address:'',p_parent_name:p.parent_name,p_parent_email:p.parent_email,p_parent_phone:'',p_note:p.note||''})});const result=await rpc.json().catch(()=>null);if(!rpc.ok)return fail('Dit tijdstip is mogelijk niet meer beschikbaar. Controleer de gegevens en probeer opnieuw.');const escape=x=>String(x||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const slotResponse=await fetch(env.SUPABASE_URL+'/rest/v1/lesson_slots?select=date,start_time&id=eq.'+p.slot_id,{headers});const slotRows=slotResponse.ok?await slotResponse.json():[];const when=slotRows[0]?`${escape(slotRows[0].date)} om ${escape(slotRows[0].start_time.slice(0,5))}`:'tijdstip volgens afspraak';const info=`Datum en tijd: ${when}<br>Ouder: ${escape(p.parent_name)}<br>Kinderen: ${p.children.map(c=>escape(c.name)+' ('+escape(c.age)+')').join(', ')}<br>Locatie: ${escape(p.location)}<br>Boekingsnummer: ${escape(result)}`;const send=async(to,subject,html)=>fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:env.MAIL_FROM,to:[to],subject,html})});const responses=await Promise.allSettled([send(p.parent_email,'Bevestiging Papiaments met Tante',`<h2>Je les is geboekt!</h2><p>Bedankt voor je aanmelding. ${info}</p>`),send(env.TANTE_EMAIL,'Nieuwe lesboeking',`<h2>Nieuwe boeking</h2><p>${info}</p>`)]);if(responses.some(r=>r.status==='rejected'||!r.value.ok))return Response.json({ok:true,email_warning:true});return Response.json({ok:true})}catch(e){return fail('Boeken tijdelijk niet mogelijk',500)}}
+
+export async function onRequestPost({ request, env }) {
+  const json = (data, status = 200) =>
+    Response.json(data, {
+      status,
+      headers: { "Cache-Control": "no-store" }
+    });
+
+  try {
+    if (
+      !env.SUPABASE_URL ||
+      !env.SUPABASE_SERVICE_ROLE_KEY ||
+      !env.GOOGLE_SCRIPT_URL ||
+      !env.MAIL_WEBHOOK_SECRET
+    ) {
+      return json({ error: "Boeken is nog niet geactiveerd" }, 503);
+    }
+
+    if (Number(request.headers.get("content-length") || 0) > 12000) {
+      return json({ error: "Te veel gegevens" }, 413);
+    }
+
+    const p = await request.json();
+
+    if (p.website) {
+      return json({ error: "Ongeldige aanvraag" }, 400);
+    }
+
+    if (
+      !Number.isSafeInteger(p.slot_id) ||
+      !Array.isArray(p.children) ||
+      p.children.length < 1 ||
+      p.children.length > 6
+    ) {
+      return json({ error: "Controleer de kinderen" }, 400);
+    }
+
+    const base = env.SUPABASE_URL.replace(/\/+$/, "");
+
+    const headers = {
+      "Content-Type": "application/json",
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: "Bearer " + env.SUPABASE_SERVICE_ROLE_KEY
+    };
+
+    const rpc = await fetch(
+      base + "/rest/v1/rpc/reserve_lesson_internal",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          p_slot_id: p.slot_id,
+          p_children: p.children,
+          p_location: p.location,
+          p_address: "",
+          p_parent_name: p.parent_name,
+          p_parent_email: p.parent_email,
+          p_parent_phone: "",
+          p_note: p.note || ""
+        })
+      }
+    );
+
+    const bookingId = await rpc.json().catch(() => null);
+
+    if (!rpc.ok) {
+      return json(
+        {
+          error:
+            "Dit tijdstip is mogelijk niet meer beschikbaar. Controleer de gegevens en probeer opnieuw."
+        },
+        400
+      );
+    }
+
+    // De reservering is nu definitief.
+    // Een mailfout mag geen tweede boeking veroorzaken.
+    try {
+      const detailsResponse = await fetch(
+        base +
+          "/rest/v1/bookings?select=id,lesson_date,start_time,location,parent_name,parent_email,note,total_eur&id=eq." +
+          encodeURIComponent(String(bookingId)) +
+          "&limit=1",
+        { headers }
+      );
+
+      if (!detailsResponse.ok) {
+        throw new Error("BOOKING_LOOKUP_" + detailsResponse.status);
+      }
+
+      const rows = await detailsResponse.json();
+      const booking = rows[0];
+
+      if (!booking) {
+        throw new Error("BOOKING_NOT_FOUND");
+      }
+
+      const payload = {
+        secret: env.MAIL_WEBHOOK_SECRET,
+        booking_id: String(booking.id),
+        date: booking.lesson_date,
+        time: String(booking.start_time).slice(0, 5),
+        location: booking.location,
+        parent_name: booking.parent_name,
+        parent_email: booking.parent_email,
+        children: p.children.map((c) => ({
+          name: String(c.name),
+          age: Number(c.age)
+        })),
+        note: booking.note || "",
+        total_eur: Number(booking.total_eur)
+      };
+
+      const sent = await fetch(env.GOOGLE_SCRIPT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8"
+        },
+        body: JSON.stringify(payload),
+        redirect: "follow"
+      });
+
+      if (!sent.ok) {
+        throw new Error("MAIL_HTTP_" + sent.status);
+      }
+
+      const result = await sent.json();
+
+      if (!result.ok) {
+        throw new Error(
+          "MAIL_RESPONSE_" + String(result.error || "unknown")
+        );
+      }
+
+      return json({ ok: true });
+    } catch (mailError) {
+      console.error(
+        "Booking saved, email delivery failed:",
+        mailError.message
+      );
+
+      return json({
+        ok: true,
+        email_warning: true
+      });
+    }
+  } catch (error) {
+    console.error("Booking endpoint error", error);
+
+    return json(
+      { error: "Boeken tijdelijk niet mogelijk" },
+      500
+    );
+  }
+}
