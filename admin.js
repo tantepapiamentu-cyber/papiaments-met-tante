@@ -1,96 +1,1301 @@
+
 const cfg = window.APP_CONFIG || {};
 const $ = (selector) => document.querySelector(selector);
+
 let token = "";
 let slots = [];
 let reservations = [];
 let blocks = [];
 let weeklyHours = [];
-const today = () => new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Amsterdam',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let month = today().slice(0,7);
+
+const today = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Amsterdam",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(new Date());
+
+let month = today().slice(0, 7);
 let selectedDay = today();
-const dateLabel = (s, options={weekday:'long',day:'numeric',month:'long'}) => new Intl.DateTimeFormat('nl-NL',options).format(new Date(s+'T12:00:00'));
-const euros = n => new Intl.NumberFormat('nl-NL',{style:'currency',currency:'EUR'}).format(Number(n)||0);
-const time = s => (s||'').slice(0,5);
-function msg(s, error=false) { const el=$('#status');el.textContent=s;el.hidden=!s;el.classList.toggle('error',error); }
-function config() { const url=String(cfg.supabaseUrl||'').trim().replace(/\/+$/,'');const key=String(cfg.supabaseAnonKey||'').trim();if(!/^https:\/\//.test(url)||!key)throw Error('Supabase-instellingen ontbreken.');return {url,key}; }
-async function parse(r) {const t=await r.text();if(!t)return null;try{return JSON.parse(t)}catch{throw Error('De server gaf geen geldig JSON-antwoord.')}}
-function err(v,fallback){return v?.msg||v?.error_description||v?.message||v?.error||fallback}
-async function auth(path,body){const {url,key}=config();const r=await fetch(`${url}/auth/v1/${path}`,{method:'POST',headers:{apikey:key,'Content-Type':'application/json'},body:JSON.stringify(body)});const v=await parse(r);if(!r.ok)throw Error(err(v,`Inloggen mislukt (${r.status})`));return v}
-async function db(path,opts={}){const {url,key}=config();if(!token)throw Error('Niet ingelogd');const r=await fetch(`${url}/rest/v1/${path}`,{...opts,headers:{apikey:key,Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(opts.headers||{})}});const v=await parse(r);if(!r.ok)throw Error(err(v,`Databasefout (${r.status})`));return v}
-function node(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
-function empty(container,text){container.replaceChildren(node('div','empty-state',text))}
-function tab(name){document.querySelectorAll('.tab').forEach(b=>{const on=b.dataset.tab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on))});document.querySelectorAll('.tab-panel').forEach(p=>p.hidden=p.dataset.panel!==name);if(name==='bookings')renderBookings();if(name==='add')renderOpenSlots();if(name==='weekly')renderWeekly()}
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>tab(b.dataset.tab)));
-$('#login').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#login button[type=submit]');btn.disabled=true;msg('Bezig met inloggen...');try{const v=await auth('token?grant_type=password',{email:$('#email').value.trim(),password:$('#password').value});token=v.access_token;if(!token)throw Error('Geen inlogsessie ontvangen');const ok=await db('rpc/is_tante_admin',{method:'POST',body:'{}'});if(ok!==true)throw Error('Dit account heeft geen beheerdersrechten');$('#loginCard').hidden=true;$('#panel').hidden=false;$('#logout').hidden=false;msg('Welkom terug, Tante! 🌺');await load()}catch(ex){token='';msg(ex.message,true)}finally{btn.disabled=false}});
-$('#logout').addEventListener('click',()=>location.reload());
-$('#refresh').addEventListener('click',load);
-$('#prevMonth').addEventListener('click',()=>shiftMonth(-1));
-$('#nextMonth').addEventListener('click',()=>shiftMonth(1));
-function shiftMonth(n){const [y,m]=month.split('-').map(Number);const d=new Date(y,m-1+n,1);month=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;selectedDay=month+'-01';renderCalendar();renderDay()}
-$('#bookingSearch').addEventListener('input',renderBookings);
-$('#bookingFilter').addEventListener('change',renderBookings);
-$('#add').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#add button[type=submit]');btn.disabled=true;try{const date=$('#date').value,start_time=$('#time').value,duration_minutes=Number($('#durationMinutes').value);if(!date||!start_time||![30,60].includes(duration_minutes))throw Error('Controleer datum, tijd en lesduur.');if(date<today())throw Error('Kies een datum vanaf vandaag.');if(blocks.some(b=>b.day===date&&((b.part==='morning'&&Number(start_time.slice(0,2))<12)||(b.part==='afternoon'&&Number(start_time.slice(0,2))*60+Number(start_time.slice(3,5))+duration_minutes>720))))throw Error('Dit dagdeel is niet beschikbaar. Maak het eerst beschikbaar in de agenda.');await db('lesson_slots',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({date,start_time,duration_minutes})});month=date.slice(0,7);selectedDay=date;msg('Gelukt! De lestijd is toegevoegd. 🌺');await load();tab('agenda')}catch(ex){msg('Toevoegen mislukt: '+ex.message,true)}finally{btn.disabled=false}});
-async function load(){try{const [s,b,bl,w]=await Promise.all([db('lesson_slots?select=id,date,start_time,duration_minutes,max_children&order=date.asc,start_time.asc&limit=1000'),db('bookings?select=id,slot_id,lesson_date,start_time,location,parent_name,parent_email,parent_phone,status,total_eur,child_count,booking_children(child_name,age)&order=lesson_date.asc,start_time.asc&limit=1000'),db('lesson_blocks?select=day,part&limit=2000'),db('weekly_lesson_hours?select=weekday,enabled,start_time,end_time&order=weekday.asc')]);slots=s||[];reservations=b||[];blocks=bl||[];weeklyHours=w||[];renderWeekly();renderStats();renderCalendar();renderDay();renderBookings();renderOpenSlots()}catch(ex){msg('Gegevens laden mislukt: '+ex.message,true)}}
-function activeBookings(slotId){return reservations.filter(b=>String(b.slot_id)===String(slotId)&&b.status==='bevestigd')}
-function occupied(s){return activeBookings(s.id).reduce((sum,b)=>sum+(Number(b.child_count)||b.booking_children?.length||0),0)}
-function renderStats(){const upcoming=reservations.filter(b=>b.lesson_date>=today()&&b.status==='bevestigd');$('#statLessons').textContent=new Set(upcoming.map(b=>b.slot_id)).size;$('#statChildren').textContent=upcoming.reduce((sum,b)=>sum+(Number(b.child_count)||b.booking_children?.length||0),0);$('#statSlots').textContent=slots.filter(s=>s.date>=today()&&occupied(s)<(s.max_children||6)&&!activeBookings(s.id).some(b=>b.location==='thuis')).length;$('#bookingBadge').textContent=upcoming.length?`(${upcoming.length})`:''}
-function renderCalendar(){const [y,m]=month.split('-').map(Number);$('#monthTitle').textContent=dateLabel(`${month}-01`,{month:'long',year:'numeric'});const grid=$('#adminCalendar');grid.replaceChildren();for(const d of ['Ma','Di','Wo','Do','Vr','Za','Zo'])grid.append(node('div','admin-dow',d));const offset=(new Date(y,m-1,1).getDay()+6)%7;const days=new Date(y,m,0).getDate();for(let i=0;i<offset;i++)grid.append(node('div',''));for(let d=1;d<=days;d++){const date=`${month}-${String(d).padStart(2,'0')}`;const daySlots=slots.filter(s=>s.date===date);const booked=daySlots.some(s=>occupied(s)>0);const dayBlocks=blocks.filter(b=>b.day===date);const btn=node('button','admin-day'+(dayBlocks.length===2?' blocked-full':dayBlocks.length===1?' blocked-partial':booked?' has-booked':daySlots.length?' has-open':' unavailable')+(selectedDay===date?' selected':''));btn.type='button';btn.setAttribute('aria-label',dateLabel(date));btn.append(node('span','day-number',String(d)));btn.append(node('span','day-marker',dayBlocks.length===2?'Niet beschikbaar':dayBlocks.length===1?(dayBlocks[0].part==='morning'?'Ochtend niet beschikbaar':'Middag niet beschikbaar'):daySlots.length?`${daySlots.length} tijd${daySlots.length===1?'':'en'}`:'Niet beschikbaar'));btn.addEventListener('click',()=>{selectedDay=date;renderCalendar();renderDay()});grid.append(btn)}}
-function renderDay(){const list=$('#daySlots');$('#dayTitle').textContent=dateLabel(selectedDay);const daySlots=slots.filter(s=>s.date===selectedDay).sort((a,b)=>a.start_time.localeCompare(b.start_time));renderBlockState();$('#daySubtitle').textContent=daySlots.length?`${daySlots.length} lesmoment${daySlots.length===1?'':'en'} op deze dag`:'Nog geen lestijden op deze dag.';if(!daySlots.length){empty(list,'🌴 Nog geen lestijden. Kies ‘Tijd toevoegen’ om er een te maken.');return}list.replaceChildren();for(const s of daySlots){const bookings=activeBookings(s.id),count=occupied(s),item=node('article','admin-item'),main=node('div','item-main');main.append(node('strong','',`${time(s.start_time)} uur · ${s.duration_minutes} minuten`));main.append(node('span','item-detail',bookings.length?`${count} van ${s.max_children||6} kinderen geboekt`:'Nog geen boekingen'));const blocked=blocks.some(b=>b.day===s.date&&((b.part==='morning'&&Number(s.start_time.slice(0,2))<12)||(b.part==='afternoon'&&Number(s.start_time.slice(0,2))*60+Number(s.start_time.slice(3,5))+Number(s.duration_minutes)>720)));main.append(node('span','tag'+(blocked?' unavailable-tag':bookings.length?' booked':''),blocked?'🔴 Niet beschikbaar':bookings.length?'🟠 Geboekt':'🟢 Beschikbaar'));if(bookings.length){const details=node('span','item-detail',bookings.map(b=>(b.booking_children||[]).map(c=>c.child_name).join(', ')||b.parent_name).join(' · '));main.append(details)}item.append(main);if(!bookings.length){const del=node('button','danger-btn','Verwijderen');del.type='button';del.addEventListener('click',()=>removeSlot(s));item.append(del)}list.append(item)}}
-async function removeSlot(s){if(activeBookings(s.id).length){msg('Deze lestijd heeft boekingen en kan niet worden verwijderd.',true);return}if(!confirm(`Lesmoment op ${dateLabel(s.date)} om ${time(s.start_time)} verwijderen?`))return;try{await db(`lesson_slots?id=eq.${encodeURIComponent(s.id)}`,{method:'DELETE'});msg('Lesmoment verwijderd.');await load()}catch(ex){msg('Verwijderen mislukt: '+ex.message,true)}}
-function renderOpenSlots(){const list=$('#openSlots');const open=slots.filter(s=>s.date>=today()&&!activeBookings(s.id).length).sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));if(!open.length){empty(list,'Nog geen vrije lestijden toegevoegd.');return}list.replaceChildren();for(const s of open){const item=node('article','admin-item'),main=node('div','item-main');main.append(node('strong','',`${dateLabel(s.date)} · ${time(s.start_time)} uur`));main.append(node('small','',`${s.duration_minutes} minuten · maximaal ${s.max_children||6} kinderen`));const del=node('button','danger-btn','Verwijderen');del.addEventListener('click',()=>removeSlot(s));item.append(main,del);list.append(item)}}
-function renderBookings(){const list=$('#bookings');const q=$('#bookingSearch').value.trim().toLocaleLowerCase('nl');const filter=$('#bookingFilter').value;const items=reservations.filter(b=>filter==='all'||(filter==='upcoming'?b.lesson_date>=today():b.lesson_date<today())).filter(b=>[b.parent_name,b.parent_email,...(b.booking_children||[]).map(c=>c.child_name)].join(' ').toLocaleLowerCase('nl').includes(q)).sort((a,b)=>(a.lesson_date+a.start_time).localeCompare(b.lesson_date+b.start_time));if(!items.length){empty(list,'Geen boekingen gevonden voor deze selectie.');return}list.replaceChildren();for(const b of items){const item=node('article','admin-item booking-card');const top=node('div','booking-top');top.append(node('strong','',`${dateLabel(b.lesson_date)} · ${time(b.start_time)} uur`),node('span','tag booked',b.status||'Onbekend'));item.append(top);const kids=(b.booking_children||[]).map(c=>`${c.child_name} (${c.age} jaar)`).join(', ');item.append(node('div','booking-kids',`👧 ${kids||'Kindgegevens niet beschikbaar'}`));item.append(node('div','booking-meta',`👤 ${b.parent_name||'Onbekend'} · 📍 ${b.location==='thuis'?'Bij gezin thuis':'Bij Tante thuis'}`));if(b.parent_email){const contact=node('div','booking-meta');contact.append('✉️ ');const a=node('a','',b.parent_email);a.href='mailto:'+b.parent_email;contact.append(a);item.append(contact)}item.append(node('div','booking-total',euros(b.total_eur)));list.append(item)}}
-$('#date').min=today();$('#date').value=today();
 
-
-function renderBlockState(){
- const parts=blocks.filter(b=>b.day===selectedDay).map(b=>b.part);
- const text=parts.length===2?'Hele dag niet beschikbaar':parts.includes('morning')?'Ochtend niet beschikbaar':parts.includes('afternoon')?'Middag niet beschikbaar':'Geen blokkade ingesteld';
- $('#blockState').textContent=text;
- document.querySelectorAll('[data-block]').forEach(b=>{const part=b.dataset.block;b.classList.toggle('chosen',part==='full'?parts.length===2:parts.includes(part))});
- $('#unblockDay').disabled=parts.length===0;
-}
-async function changeBlock(part,block){
- if(selectedDay<today()){msg('Een datum in het verleden kun je niet aanpassen.',true);return}
- const label=part==='full'?'de hele dag':part==='morning'?'de ochtend':'de middag';
- if(!confirm(block?`${dateLabel(selectedDay)}: ${label} niet beschikbaar maken?`:`${dateLabel(selectedDay)} weer beschikbaar maken?`))return;
- try{
-  await db('rpc/set_lesson_block',{method:'POST',body:JSON.stringify({p_day:selectedDay,p_part:part,p_block:block})});
-  msg(block?'Gelukt! Niet beschikbaar ingesteld. 🌴':'Blokkade opgeheven. 🌺');await load();
- }catch(e){msg('Aanpassen mislukt: '+e.message,true)}
-}
-document.querySelectorAll('[data-block]').forEach(b=>b.addEventListener('click',()=>changeBlock(b.dataset.block,true)));
-$('#unblockDay').addEventListener('click',()=>changeBlock('full',false));
-
-// Vaste weekplanning: één keer instellen, automatisch 60-minutenmomenten.
-const weekdayNames=['Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag','Zondag'];
-function renderWeekly(){
- const el=$('#weeklyDays');if(!el)return;el.replaceChildren();
- for(let i=0;i<7;i++){
-  const w=weeklyHours.find(x=>Number(x.weekday)===i)||{weekday:i,enabled:false,start_time:'09:00',end_time:'17:00'};
-  const row=node('div','weekly-row');row.dataset.weekday=String(i);
-  const title=node('label','weekly-toggle');
-  const enabled=document.createElement('input');enabled.type='checkbox';enabled.className='weekly-enabled';enabled.checked=Boolean(w.enabled);
-  title.append(enabled,document.createTextNode(' '+weekdayNames[i]));row.append(title);
-  const hours=node('div','weekly-hours');
-  for(const [label,klass,val] of [['Van','weekly-from',w.start_time],['Tot','weekly-to',w.end_time]]){
-   const l=node('label','',label);const input=document.createElement('input');input.type='time';input.step=3600;input.className=klass;input.value=String(val).slice(0,5);l.append(input);hours.append(l);
+const dateLabel = (
+  s,
+  options = {
+    weekday: "long",
+    day: "numeric",
+    month: "long"
   }
-  const update=()=>{hours.hidden=!enabled.checked;row.classList.toggle('weekly-off',!enabled.checked)};
-  enabled.addEventListener('change',update);update();row.append(hours);el.append(row);
- }
+) =>
+  new Intl.DateTimeFormat("nl-NL", options).format(
+    new Date(s + "T12:00:00")
+  );
+
+const euros = (n) =>
+  new Intl.NumberFormat("nl-NL", {
+    style: "currency",
+    currency: "EUR"
+  }).format(Number(n) || 0);
+
+const time = (s) => (s || "").slice(0, 5);
+
+function msg(s, error = false) {
+  const el = $("#status");
+  el.textContent = s;
+  el.hidden = !s;
+  el.classList.toggle("error", error);
 }
-$('#weeklyForm').addEventListener('submit',async event=>{
- event.preventDefault();const button=$('#weeklySave');button.disabled=true;
- try{
-  const hours=[...document.querySelectorAll('.weekly-row')].map(row=>({
-   weekday:Number(row.dataset.weekday),enabled:row.querySelector('.weekly-enabled').checked,
-   start_time:row.querySelector('.weekly-from').value,end_time:row.querySelector('.weekly-to').value
-  }));
-  for(const h of hours){
-   if(!h.start_time||!h.end_time||h.start_time>=h.end_time||!/^\d{2}:00$/.test(h.start_time)||!/^\d{2}:00$/.test(h.end_time))
-    throw Error('Kies hele uren, bijvoorbeeld 09:00 tot 17:00.');
+
+function config() {
+  const url = String(cfg.supabaseUrl || "")
+    .trim()
+    .replace(/\/+$/, "");
+
+  const key = String(cfg.supabaseAnonKey || "").trim();
+
+  if (!/^https:\/\//.test(url) || !key) {
+    throw Error("Supabase-instellingen ontbreken.");
   }
-  await db('rpc/save_weekly_lesson_hours',{method:'POST',body:JSON.stringify({p_hours:hours})});
-  msg('Gelukt! Je vaste lestijden staan in de agenda. 🌺');await load();tab('agenda');
- }catch(e){msg('Opslaan mislukt: '+e.message,true)}finally{button.disabled=false}
+
+  return { url, key };
+}
+
+async function parse(r) {
+  const t = await r.text();
+
+  if (!t) return null;
+
+  try {
+    return JSON.parse(t);
+  } catch {
+    throw Error("De server gaf geen geldig JSON-antwoord.");
+  }
+}
+
+function err(v, fallback) {
+  return (
+    v?.msg ||
+    v?.error_description ||
+    v?.message ||
+    v?.error ||
+    fallback
+  );
+}
+
+async function auth(path, body) {
+  const { url, key } = config();
+
+  const r = await fetch(`${url}/auth/v1/${path}`, {
+    method: "POST",
+    headers: {
+      apikey: key,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+
+  const v = await parse(r);
+
+  if (!r.ok) {
+    throw Error(err(v, `Inloggen mislukt (${r.status})`));
+  }
+
+  return v;
+}
+
+async function db(path, opts = {}) {
+  const { url, key } = config();
+
+  if (!token) {
+    throw Error("Niet ingelogd");
+  }
+
+  const r = await fetch(`${url}/rest/v1/${path}`, {
+    ...opts,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...(opts.headers || {})
+    }
+  });
+
+  const v = await parse(r);
+
+  if (!r.ok) {
+    throw Error(err(v, `Databasefout (${r.status})`));
+  }
+
+  return v;
+}
+
+function node(tag, cls, text) {
+  const e = document.createElement(tag);
+
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+
+  return e;
+}
+
+function empty(container, text) {
+  container.replaceChildren(
+    node("div", "empty-state", text)
+  );
+}
+
+function tab(name) {
+  document.querySelectorAll(".tab").forEach((b) => {
+    const on = b.dataset.tab === name;
+
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+
+  document.querySelectorAll(".tab-panel").forEach((p) => {
+    p.hidden = p.dataset.panel !== name;
+  });
+
+  if (name === "bookings") renderBookings();
+  if (name === "add") renderOpenSlots();
+  if (name === "weekly") renderWeekly();
+}
+
+document.querySelectorAll(".tab").forEach((b) =>
+  b.addEventListener("click", () => tab(b.dataset.tab))
+);
+
+
+// ----------------------------------
+// INLOGGEN EN UITLOGGEN
+// ----------------------------------
+
+$("#login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const btn = $('#login button[type=submit]');
+  btn.disabled = true;
+
+  msg("Bezig met inloggen...");
+
+  try {
+    const v = await auth("token?grant_type=password", {
+      email: $("#email").value.trim(),
+      password: $("#password").value
+    });
+
+    token = v.access_token;
+
+    if (!token) {
+      throw Error("Geen inlogsessie ontvangen");
+    }
+
+    const ok = await db("rpc/is_tante_admin", {
+      method: "POST",
+      body: "{}"
+    });
+
+    if (ok !== true) {
+      throw Error("Dit account heeft geen beheerdersrechten");
+    }
+
+    $("#loginCard").hidden = true;
+    $("#panel").hidden = false;
+    $("#logout").hidden = false;
+
+    msg("Welkom terug, Tante! 🌺");
+
+    await load();
+
+  } catch (ex) {
+    token = "";
+    msg(ex.message, true);
+
+  } finally {
+    btn.disabled = false;
+  }
 });
+
+$("#logout").addEventListener("click", () => {
+  location.reload();
+});
+
+$("#refresh").addEventListener("click", load);
+
+
+// ----------------------------------
+// KALENDER NAVIGATIE
+// ----------------------------------
+
+$("#prevMonth").addEventListener("click", () => {
+  shiftMonth(-1);
+});
+
+$("#nextMonth").addEventListener("click", () => {
+  shiftMonth(1);
+});
+
+function shiftMonth(n) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+
+  month =
+    `${d.getFullYear()}-` +
+    String(d.getMonth() + 1).padStart(2, "0");
+
+  selectedDay = month + "-01";
+
+  renderCalendar();
+  renderDay();
+}
+
+$("#bookingSearch").addEventListener(
+  "input",
+  renderBookings
+);
+
+$("#bookingFilter").addEventListener(
+  "change",
+  renderBookings
+);
+
+
+// ----------------------------------
+// HANDMATIG LESTIJD TOEVOEGEN
+// ----------------------------------
+
+$("#add").addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const btn = $('#add button[type=submit]');
+  btn.disabled = true;
+
+  try {
+    const date = $("#date").value;
+    const start_time = $("#time").value;
+    const duration_minutes = Number(
+      $("#durationMinutes").value
+    );
+
+    if (
+      !date ||
+      !start_time ||
+      ![30, 60].includes(duration_minutes)
+    ) {
+      throw Error("Controleer datum, tijd en lesduur.");
+    }
+
+    if (date < today()) {
+      throw Error("Kies een datum vanaf vandaag.");
+    }
+
+    if (
+      blocks.some(
+        (b) =>
+          b.day === date &&
+          (
+            (
+              b.part === "morning" &&
+              Number(start_time.slice(0, 2)) < 12
+            ) ||
+            (
+              b.part === "afternoon" &&
+              Number(start_time.slice(0, 2)) * 60 +
+                Number(start_time.slice(3, 5)) +
+                duration_minutes > 720
+            )
+          )
+      )
+    ) {
+      throw Error(
+        "Dit dagdeel is niet beschikbaar. Maak het eerst beschikbaar in de agenda."
+      );
+    }
+
+    await db("lesson_slots", {
+      method: "POST",
+      headers: {
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify({
+        date,
+        start_time,
+        duration_minutes
+      })
+    });
+
+    month = date.slice(0, 7);
+    selectedDay = date;
+
+    msg("Gelukt! De lestijd is toegevoegd. 🌺");
+
+    await load();
+    tab("agenda");
+
+  } catch (ex) {
+    msg("Toevoegen mislukt: " + ex.message, true);
+
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+
+// ----------------------------------
+// ALLE GEGEVENS LADEN
+// ----------------------------------
+
+async function load() {
+  try {
+    const [s, b, bl, w] = await Promise.all([
+      db(
+        "lesson_slots?select=id,date,start_time,duration_minutes,max_children&order=date.asc,start_time.asc&limit=1000"
+      ),
+      db(
+        "bookings?select=id,slot_id,lesson_date,start_time,location,parent_name,parent_email,parent_phone,status,total_eur,child_count,booking_children(child_name,age)&order=lesson_date.asc,start_time.asc&limit=1000"
+      ),
+      db(
+        "lesson_blocks?select=day,part&limit=2000"
+      ),
+      db(
+        "weekly_lesson_hours?select=weekday,enabled,start_time,end_time&order=weekday.asc"
+      )
+    ]);
+
+    slots = s || [];
+    reservations = b || [];
+    blocks = bl || [];
+    weeklyHours = w || [];
+
+    renderWeekly();
+    renderStats();
+    renderCalendar();
+    renderDay();
+    renderBookings();
+    renderOpenSlots();
+
+  } catch (ex) {
+    msg("Gegevens laden mislukt: " + ex.message, true);
+  }
+}
+
+
+// ----------------------------------
+// BEZETTING EN STATISTIEKEN
+// ----------------------------------
+
+function activeBookings(slotId) {
+  return reservations.filter(
+    (b) =>
+      String(b.slot_id) === String(slotId) &&
+      b.status === "bevestigd"
+  );
+}
+
+function occupied(s) {
+  return activeBookings(s.id).reduce(
+    (sum, b) =>
+      sum +
+      (
+        Number(b.child_count) ||
+        b.booking_children?.length ||
+        0
+      ),
+    0
+  );
+}
+
+function renderStats() {
+  const upcoming = reservations.filter(
+    (b) =>
+      b.lesson_date >= today() &&
+      b.status === "bevestigd"
+  );
+
+  $("#statLessons").textContent =
+    new Set(upcoming.map((b) => b.slot_id)).size;
+
+  $("#statChildren").textContent =
+    upcoming.reduce(
+      (sum, b) =>
+        sum +
+        (
+          Number(b.child_count) ||
+          b.booking_children?.length ||
+          0
+        ),
+      0
+    );
+
+  $("#statSlots").textContent = slots.filter(
+    (s) =>
+      s.date >= today() &&
+      occupied(s) < (s.max_children || 6) &&
+      !activeBookings(s.id).some(
+        (b) => b.location === "thuis"
+      )
+  ).length;
+
+  $("#bookingBadge").textContent =
+    upcoming.length ? `(${upcoming.length})` : "";
+}
+
+
+// ----------------------------------
+// KALENDER TONEN
+// ----------------------------------
+
+function renderCalendar() {
+  const [y, m] = month.split("-").map(Number);
+
+  $("#monthTitle").textContent = dateLabel(
+    `${month}-01`,
+    {
+      month: "long",
+      year: "numeric"
+    }
+  );
+
+  const grid = $("#adminCalendar");
+  grid.replaceChildren();
+
+  for (const d of [
+    "Ma", "Di", "Wo", "Do", "Vr", "Za", "Zo"
+  ]) {
+    grid.append(node("div", "admin-dow", d));
+  }
+
+  const offset =
+    (new Date(y, m - 1, 1).getDay() + 6) % 7;
+
+  const days = new Date(y, m, 0).getDate();
+
+  for (let i = 0; i < offset; i++) {
+    grid.append(node("div", ""));
+  }
+
+  for (let d = 1; d <= days; d++) {
+    const date =
+      `${month}-` +
+      String(d).padStart(2, "0");
+
+    const daySlots = slots.filter(
+      (s) => s.date === date
+    );
+
+    const booked = daySlots.some(
+      (s) => occupied(s) > 0
+    );
+
+    const dayBlocks = blocks.filter(
+      (b) => b.day === date
+    );
+
+    const btn = node(
+      "button",
+      "admin-day" +
+        (
+          dayBlocks.length === 2
+            ? " blocked-full"
+            : dayBlocks.length === 1
+              ? " blocked-partial"
+              : booked
+                ? " has-booked"
+                : daySlots.length
+                  ? " has-open"
+                  : " unavailable"
+        ) +
+        (selectedDay === date ? " selected" : "")
+    );
+
+    btn.type = "button";
+
+    btn.setAttribute(
+      "aria-label",
+      dateLabel(date)
+    );
+
+    btn.append(
+      node("span", "day-number", String(d))
+    );
+
+    btn.append(
+      node(
+        "span",
+        "day-marker",
+        dayBlocks.length === 2
+          ? "Niet beschikbaar"
+          : dayBlocks.length === 1
+            ? dayBlocks[0].part === "morning"
+              ? "Ochtend niet beschikbaar"
+              : "Middag niet beschikbaar"
+            : daySlots.length
+              ? `${daySlots.length} tijd${
+                  daySlots.length === 1 ? "" : "en"
+                }`
+              : "Niet beschikbaar"
+      )
+    );
+
+    btn.addEventListener("click", () => {
+      selectedDay = date;
+      renderCalendar();
+      renderDay();
+    });
+
+    grid.append(btn);
+  }
+}
+
+
+// ----------------------------------
+// DAGOVERZICHT
+// ----------------------------------
+
+function renderDay() {
+  const list = $("#daySlots");
+
+  $("#dayTitle").textContent =
+    dateLabel(selectedDay);
+
+  const daySlots = slots
+    .filter((s) => s.date === selectedDay)
+    .sort((a, b) =>
+      a.start_time.localeCompare(b.start_time)
+    );
+
+  renderBlockState();
+
+  $("#daySubtitle").textContent =
+    daySlots.length
+      ? `${daySlots.length} lesmoment${
+          daySlots.length === 1 ? "" : "en"
+        } op deze dag`
+      : "Nog geen lestijden op deze dag.";
+
+  if (!daySlots.length) {
+    empty(
+      list,
+      "🌴 Nog geen lestijden. Kies ‘Tijd toevoegen’ om er een te maken."
+    );
+    return;
+  }
+
+  list.replaceChildren();
+
+  for (const s of daySlots) {
+    const bookings = activeBookings(s.id);
+    const count = occupied(s);
+
+    const item = node("article", "admin-item");
+    const main = node("div", "item-main");
+
+    main.append(
+      node(
+        "strong",
+        "",
+        `${time(s.start_time)} uur · ${s.duration_minutes} minuten`
+      )
+    );
+
+    main.append(
+      node(
+        "span",
+        "item-detail",
+        bookings.length
+          ? `${count} van ${
+              s.max_children || 6
+            } kinderen geboekt`
+          : "Nog geen boekingen"
+      )
+    );
+
+    const blocked = blocks.some(
+      (b) =>
+        b.day === s.date &&
+        (
+          (
+            b.part === "morning" &&
+            Number(s.start_time.slice(0, 2)) < 12
+          ) ||
+          (
+            b.part === "afternoon" &&
+            Number(s.start_time.slice(0, 2)) * 60 +
+              Number(s.start_time.slice(3, 5)) +
+              Number(s.duration_minutes) > 720
+          )
+        )
+    );
+
+    main.append(
+      node(
+        "span",
+        "tag" +
+          (
+            blocked
+              ? " unavailable-tag"
+              : bookings.length
+                ? " booked"
+                : ""
+          ),
+        blocked
+          ? "🔴 Niet beschikbaar"
+          : bookings.length
+            ? "🟠 Geboekt"
+            : "🟢 Beschikbaar"
+      )
+    );
+
+    if (bookings.length) {
+      const details = node(
+        "span",
+        "item-detail",
+        bookings
+          .map(
+            (b) =>
+              (b.booking_children || [])
+                .map((c) => c.child_name)
+                .join(", ") ||
+              b.parent_name
+          )
+          .join(" · ")
+      );
+
+      main.append(details);
+    }
+
+    item.append(main);
+
+    if (!bookings.length) {
+      const del = node(
+        "button",
+        "danger-btn",
+        "Verwijderen"
+      );
+
+      del.type = "button";
+
+      del.addEventListener(
+        "click",
+        () => removeSlot(s)
+      );
+
+      item.append(del);
+    }
+
+    list.append(item);
+  }
+}
+
+
+// ----------------------------------
+// LESTIJD VERWIJDEREN
+// ----------------------------------
+
+async function removeSlot(s) {
+  if (activeBookings(s.id).length) {
+    msg(
+      "Deze lestijd heeft boekingen en kan niet worden verwijderd.",
+      true
+    );
+    return;
+  }
+
+  if (
+    !confirm(
+      `Lesmoment op ${dateLabel(s.date)} om ${time(
+        s.start_time
+      )} verwijderen?`
+    )
+  ) {
+    return;
+  }
+
+  try {
+    await db(
+      `lesson_slots?id=eq.${encodeURIComponent(s.id)}`,
+      {
+        method: "DELETE"
+      }
+    );
+
+    msg("Lesmoment verwijderd.");
+
+    await load();
+
+  } catch (ex) {
+    msg(
+      "Verwijderen mislukt: " + ex.message,
+      true
+    );
+  }
+}
+
+
+// ----------------------------------
+// VRIJE LESTIJDEN
+// ----------------------------------
+
+function renderOpenSlots() {
+  const list = $("#openSlots");
+
+  const open = slots
+    .filter(
+      (s) =>
+        s.date >= today() &&
+        !activeBookings(s.id).length
+    )
+    .sort(
+      (a, b) =>
+        (a.date + a.start_time).localeCompare(
+          b.date + b.start_time
+        )
+    );
+
+  if (!open.length) {
+    empty(
+      list,
+      "Nog geen vrije lestijden toegevoegd."
+    );
+    return;
+  }
+
+  list.replaceChildren();
+
+  for (const s of open) {
+    const item = node("article", "admin-item");
+    const main = node("div", "item-main");
+
+    main.append(
+      node(
+        "strong",
+        "",
+        `${dateLabel(s.date)} · ${time(s.start_time)} uur`
+      )
+    );
+
+    main.append(
+      node(
+        "small",
+        "",
+        `${s.duration_minutes} minuten · maximaal ${
+          s.max_children || 6
+        } kinderen`
+      )
+    );
+
+    const del = node(
+      "button",
+      "danger-btn",
+      "Verwijderen"
+    );
+
+    del.addEventListener(
+      "click",
+      () => removeSlot(s)
+    );
+
+    item.append(main, del);
+    list.append(item);
+  }
+}
+
+
+// ----------------------------------
+// BOEKINGEN OVERZICHT
+// ----------------------------------
+
+function renderBookings() {
+  const list = $("#bookings");
+
+  const q = $("#bookingSearch")
+    .value.trim()
+    .toLocaleLowerCase("nl");
+
+  const filter = $("#bookingFilter").value;
+
+  const items = reservations
+    .filter(
+      (b) =>
+        filter === "all" ||
+        (
+          filter === "upcoming"
+            ? b.lesson_date >= today()
+            : b.lesson_date < today()
+        )
+    )
+    .filter(
+      (b) =>
+        [
+          b.parent_name,
+          b.parent_email,
+          ...(b.booking_children || [])
+            .map((c) => c.child_name)
+        ]
+          .join(" ")
+          .toLocaleLowerCase("nl")
+          .includes(q)
+    )
+    .sort(
+      (a, b) =>
+        (a.lesson_date + a.start_time)
+          .localeCompare(
+            b.lesson_date + b.start_time
+          )
+    );
+
+  if (!items.length) {
+    empty(
+      list,
+      "Geen boekingen gevonden voor deze selectie."
+    );
+    return;
+  }
+
+  list.replaceChildren();
+
+  for (const b of items) {
+    const item = node(
+      "article",
+      "admin-item booking-card"
+    );
+
+    const top = node("div", "booking-top");
+
+    top.append(
+      node(
+        "strong",
+        "",
+        `${dateLabel(b.lesson_date)} · ${
+          time(b.start_time)
+        } uur`
+      ),
+      node(
+        "span",
+        "tag booked",
+        b.status || "Onbekend"
+      )
+    );
+
+    item.append(top);
+
+    const kids = (b.booking_children || [])
+      .map(
+        (c) =>
+          `${c.child_name} (${c.age} jaar)`
+      )
+      .join(", ");
+
+    item.append(
+      node(
+        "div",
+        "booking-kids",
+        `👧 ${kids || "Kindgegevens niet beschikbaar"}`
+      )
+    );
+
+    item.append(
+      node(
+        "div",
+        "booking-meta",
+        `👤 ${b.parent_name || "Onbekend"} · 📍 ${
+          b.location === "thuis"
+            ? "Bij gezin thuis"
+            : "Bij Tante thuis"
+        }`
+      )
+    );
+
+    if (b.parent_email) {
+      const contact = node(
+        "div",
+        "booking-meta"
+      );
+
+      contact.append("✉️ ");
+
+      const a = node(
+        "a",
+        "",
+        b.parent_email
+      );
+
+      a.href = "mailto:" + b.parent_email;
+
+      contact.append(a);
+      item.append(contact);
+    }
+
+    item.append(
+      node(
+        "div",
+        "booking-total",
+        euros(b.total_eur)
+      )
+    );
+
+    // Nieuwe annuleerknop.
+    // Alleen bij bevestigde boekingen.
+
+    if (b.status === "bevestigd") {
+      const cancel = node(
+        "button",
+        "danger-btn",
+        "Boeking annuleren"
+      );
+
+      cancel.type = "button";
+
+      cancel.addEventListener(
+        "click",
+        () => cancelBooking(b)
+      );
+
+      item.append(cancel);
+    }
+
+    list.append(item);
+  }
+}
+
+
+// ----------------------------------
+// BOEKING ANNULEREN
+// ----------------------------------
+
+async function cancelBooking(b) {
+  const childrenNames = (
+    b.booking_children || []
+  )
+    .map((c) => c.child_name)
+    .join(", ");
+
+  const question =
+    `Weet je zeker dat je de boeking van ` +
+    `${b.parent_name || "deze ouder"}` +
+    (
+      childrenNames
+        ? ` voor ${childrenNames}`
+        : ""
+    ) +
+    ` op ${dateLabel(b.lesson_date)} ` +
+    `om ${time(b.start_time)} wilt annuleren? ` +
+    `De plekken komen weer vrij.`;
+
+  if (!confirm(question)) return;
+
+  try {
+    await db(
+      "rpc/cancel_tante_booking",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          p_booking_id: b.id
+        })
+      }
+    );
+
+    msg(
+      "De boeking is geannuleerd. De plaatsen zijn weer beschikbaar. 🌺"
+    );
+
+    await load();
+
+  } catch (ex) {
+    msg(
+      "Annuleren mislukt: " + ex.message,
+      true
+    );
+  }
+}
+
+
+// ----------------------------------
+// DATUMVELD
+// ----------------------------------
+
+$("#date").min = today();
+$("#date").value = today();
+
+
+// ----------------------------------
+// DAGDELEN BLOKKEREN
+// ----------------------------------
+
+function renderBlockState() {
+  const parts = blocks
+    .filter((b) => b.day === selectedDay)
+    .map((b) => b.part);
+
+  const text =
+    parts.length === 2
+      ? "Hele dag niet beschikbaar"
+      : parts.includes("morning")
+        ? "Ochtend niet beschikbaar"
+        : parts.includes("afternoon")
+          ? "Middag niet beschikbaar"
+          : "Geen blokkade ingesteld";
+
+  $("#blockState").textContent = text;
+
+  document
+    .querySelectorAll("[data-block]")
+    .forEach((b) => {
+      const part = b.dataset.block;
+
+      b.classList.toggle(
+        "chosen",
+        part === "full"
+          ? parts.length === 2
+          : parts.includes(part)
+      );
+    });
+
+  $("#unblockDay").disabled =
+    parts.length === 0;
+}
+
+async function changeBlock(part, block) {
+  if (selectedDay < today()) {
+    msg(
+      "Een datum in het verleden kun je niet aanpassen.",
+      true
+    );
+    return;
+  }
+
+  const label =
+    part === "full"
+      ? "de hele dag"
+      : part === "morning"
+        ? "de ochtend"
+        : "de middag";
+
+  const question = block
+    ? `${dateLabel(selectedDay)}: ${label} niet beschikbaar maken?`
+    : `${dateLabel(selectedDay)} weer beschikbaar maken?`;
+
+  if (!confirm(question)) return;
+
+  try {
+    await db(
+      "rpc/set_lesson_block",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          p_day: selectedDay,
+          p_part: part,
+          p_block: block
+        })
+      }
+    );
+
+    msg(
+      block
+        ? "Gelukt! Niet beschikbaar ingesteld. 🌴"
+        : "Blokkade opgeheven. 🌺"
+    );
+
+    await load();
+
+  } catch (e) {
+    msg(
+      "Aanpassen mislukt: " + e.message,
+      true
+    );
+  }
+}
+
+document
+  .querySelectorAll("[data-block]")
+  .forEach((b) =>
+    b.addEventListener(
+      "click",
+      () => changeBlock(
+        b.dataset.block,
+        true
+      )
+    )
+  );
+
+$("#unblockDay").addEventListener(
+  "click",
+  () => changeBlock("full", false)
+);
+
+
+// ----------------------------------
+// VASTE WEEKPLANNING
+// ----------------------------------
+
+const weekdayNames = [
+  "Maandag",
+  "Dinsdag",
+  "Woensdag",
+  "Donderdag",
+  "Vrijdag",
+  "Zaterdag",
+  "Zondag"
+];
+
+function renderWeekly() {
+  const el = $("#weeklyDays");
+
+  if (!el) return;
+
+  el.replaceChildren();
+
+  for (let i = 0; i < 7; i++) {
+    const w =
+      weeklyHours.find(
+        (x) => Number(x.weekday) === i
+      ) || {
+        weekday: i,
+        enabled: false,
+        start_time: "09:00",
+        end_time: "17:00"
+      };
+
+    const row = node(
+      "div",
+      "weekly-row"
+    );
+
+    row.dataset.weekday = String(i);
+
+    const title = node(
+      "label",
+      "weekly-toggle"
+    );
+
+    const enabled =
+      document.createElement("input");
+
+    enabled.type = "checkbox";
+    enabled.className = "weekly-enabled";
+    enabled.checked = Boolean(w.enabled);
+
+    title.append(
+      enabled,
+      document.createTextNode(
+        " " + weekdayNames[i]
+      )
+    );
+
+    row.append(title);
+
+    const hours = node(
+      "div",
+      "weekly-hours"
+    );
+
+    for (const [label, klass, val] of [
+      ["Van", "weekly-from", w.start_time],
+      ["Tot", "weekly-to", w.end_time]
+    ]) {
+      const l = node("label", "", label);
+
+      const input =
+        document.createElement("input");
+
+      input.type = "time";
+      input.step = 3600;
+      input.className = klass;
+      input.value = String(val).slice(0, 5);
+
+      l.append(input);
+      hours.append(l);
+    }
+
+    const update = () => {
+      hours.hidden = !enabled.checked;
+
+      row.classList.toggle(
+        "weekly-off",
+        !enabled.checked
+      );
+    };
+
+    enabled.addEventListener(
+      "change",
+      update
+    );
+
+    update();
+
+    row.append(hours);
+    el.append(row);
+  }
+}
+
+$("#weeklyForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+
+    const button = $("#weeklySave");
+    button.disabled = true;
+
+    try {
+      const hours = [
+        ...document.querySelectorAll(
+          ".weekly-row"
+        )
+      ].map((row) => ({
+        weekday: Number(
+          row.dataset.weekday
+        ),
+        enabled: row.querySelector(
+          ".weekly-enabled"
+        ).checked,
+        start_time: row.querySelector(
+          ".weekly-from"
+        ).value,
+        end_time: row.querySelector(
+          ".weekly-to"
+        ).value
+      }));
+
+      for (const h of hours) {
+        if (
+          !h.start_time ||
+          !h.end_time ||
+          h.start_time >= h.end_time ||
+          !/^\d{2}:00$/.test(h.start_time) ||
+          !/^\d{2}:00$/.test(h.end_time)
+        ) {
+          throw Error(
+            "Kies hele uren, bijvoorbeeld 09:00 tot 17:00."
+          );
+        }
+      }
+
+      await db(
+        "rpc/save_weekly_lesson_hours",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            p_hours: hours
+          })
+        }
+      );
+
+      msg(
+        "Gelukt! Je vaste lestijden staan in de agenda. 🌺"
+      );
+
+      await load();
+      tab("agenda");
+
+    } catch (e) {
+      msg(
+        "Opslaan mislukt: " + e.message,
+        true
+      );
+
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
