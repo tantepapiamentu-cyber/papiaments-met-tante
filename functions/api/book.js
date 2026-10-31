@@ -35,6 +35,13 @@ export async function onRequestPost({ request, env }) {
       return json({ error: "Controleer de kinderen" }, 400);
     }
 
+    // Toegestane leslocaties.
+    if (
+      !["tante", "thuis", "videobellen"].includes(p.location)
+    ) {
+      return json({ error: "Kies een geldige leslocatie" }, 400);
+    }
+
     const base = env.SUPABASE_URL.replace(/\/+$/, "");
 
     const headers = {
