@@ -571,7 +571,7 @@ form.addEventListener("submit", async (event) => {
       );
     } else {
       notice("");
-      showBookingSuccess();
+      showBookingSuccess(fields.location.value);
     }
 
     form.reset();
@@ -606,7 +606,7 @@ form.addEventListener("submit", async (event) => {
 // SUCCES POP-UP
 // ----------------------------------
 
-function showBookingSuccess() {
+function showBookingSuccess(location) {
   let dialog = document.querySelector(
     "#booking-success-dialog"
   );
@@ -637,6 +637,10 @@ function showBookingSuccess() {
 
         <p>
           Je ontvangt een bevestiging per e-mail.
+        </p>
+
+        <p class="booking-success-video" hidden>
+          💻 Je hebt gekozen voor videobellen. Tante stuurt de gegevens voor de online les apart naar je toe.
         </p>
 
         <p class="booking-success-spam">
@@ -745,6 +749,9 @@ function showBookingSuccess() {
     });
   }
 
+  dialog.querySelector(".booking-success-video").hidden =
+    location !== "videobellen";
+
   dialog.showModal();
 
   dialog
@@ -781,3 +788,4 @@ cal.insertAdjacentElement("afterend", legend);
 // ----------------------------------
 
 refresh();
+
