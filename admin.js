@@ -899,9 +899,12 @@ function renderBookings() {
         "div",
         "booking-meta",
         `👤 ${b.parent_name || "Onbekend"} · 📍 ${
-          b.location === "thuis"
-            ? "Bij gezin thuis"
-            : "Bij Tante thuis"
+          
+b.location === "thuis"
+  ? "Bij gezin thuis"
+  : b.location === "videobellen"
+    ? "Videobellen"
+    : "Bij Tante thuis"
         }`
       )
     );
