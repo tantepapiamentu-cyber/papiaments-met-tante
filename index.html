@@ -1,8 +1,301 @@
-<!doctype html><html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#fff7e8"><title>Papiaments met Tante — Boek een les</title><link rel="stylesheet" href="style.css"></head><body>
-<header class="site-header"><a class="brand" href="#top"><span class="flower">🌺</span><span>Papiaments<br><small>met <em>Tante</em></small></span></a><a class="header-cta" href="#boeken">Boek een les →</a></header>
-<main id="top"><section class="hero" aria-label="Welkom bij Papiaments met Tante"><div class="hero-art"><img src="tante-kinderen.jpg" alt="Illustratie van Tante samen met kinderen uit de originele flyer"></div><h1>Papiaments <span>met Tante</span></h1></section>
-<section class="booking" id="boeken"><div class="booking-head"><span>🌴 Samen de taal leren, met plezier!</span><p>Kies hieronder eenvoudig een lesmoment voor je kind.</p></div><form id="form"><section class="step"><h2><span class="step-icon">📅</span> 1. Kies een datum</h2><div class="calendarbar"><button type="button" id="prev" aria-label="Vorige maand">‹</button><b id="month"></b><button type="button" id="next" aria-label="Volgende maand">›</button></div><div class="calendar" id="calendar" aria-label="Kalender"></div><p class="calendar-key"><span class="dot"></span> Groen = beschikbare lessen</p><p id="calendar-error" class="error" role="status" hidden></p></section>
-<section class="step"><h2><span class="step-icon peach">🕒</span> 2. Kies een lestijd</h2><p id="slot-label" class="hint">Kies hierboven eerst een datum.</p><div class="slots" id="slots"></div></section>
-<section class="step children-step"><h2><span class="step-icon mint">👧</span> 3. Kinderen toevoegen</h2><p class="hint">Je kunt meerdere kinderen tegelijk aanmelden (maximaal 6).</p><div id="children"><div class="child-entry"><div class="child-title">Kind 1</div><label>Naam van je kind<input class="child-name" required maxlength="160" placeholder="Voornaam"></label><label>Leeftijd<select class="child-age" required><option value="">Kies leeftijd</option></select></label></div></div><button type="button" id="addChild" class="add-child">＋ Nog een kind toevoegen</button></section>
-<section class="step"><h2><span class="step-icon">🏡</span> 4. Locatie</h2><label>Waar wil je de les volgen?<select name="location"><option value="tante">Bij Tante</option><option value="thuis">Bij ons thuis (+ €2,50 per afspraak)</option></select></label><label>Opmerking (optioneel)<textarea name="note" maxlength="400" rows="2" placeholder="Is er iets wat Tante moet weten?"></textarea></label></section>
-<section class="step"><h2><span class="step-icon mint">✉️</span> 5. Contactgegevens</h2><label>Naam ouder / contactpersoon<input name="parent" required maxlength="100" autocomplete="name" placeholder="Je naam"></label><label>E-mailadres<input name="email" type="email" required maxlength="200" autocomplete="email" placeholder="naam@voorbeeld.nl"></label><div class="prices"><p>🌼 4 jaar · 30 minuten · € 7,50 per kind</p><p>🌟 Vanaf 5 jaar · 60 minuten · € 10 per kind</p></div><div class="total"><div><small>Totaal per les</small><b id="price">€ 0,00</b></div><span id="duration">Kies een leeftijd</span></div><label class="consent"><input name="consent" type="checkbox" required> Ik geef toestemming om mijn gegevens voor de boeking en bevestiging te gebruiken.</label><button class="submit" id="submit" type="submit">Afspraak definitief boeken →</button><p id="status" role="status" aria-live="polite"></p></section></form></section></main><footer>🌺 Papiaments met Tante · Met liefde voor onze taal <a href="admin.html">Voor Tante</a></footer><script src="config.js"></script><script src="app.js"></script></body></html>
+
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff7e8">
+  <title>Papiaments met Tante — Boek een les</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<header class="site-header">
+  <a class="brand" href="#top">
+    <span class="flower">🌺</span>
+    <span>
+      Papiaments<br>
+      <small>met <em>Tante</em></small>
+    </span>
+  </a>
+
+  <a class="header-cta" href="#boeken">
+    Boek een les →
+  </a>
+</header>
+
+<main id="top">
+
+  <section
+    class="hero"
+    aria-label="Welkom bij Papiaments met Tante"
+  >
+    <div class="hero-art">
+      <img
+        src="tante-kinderen.jpg"
+        alt="Illustratie van Tante samen met kinderen uit de originele flyer"
+      >
+    </div>
+
+    <h1>
+      Papiaments <span>met Tante</span>
+    </h1>
+  </section>
+
+  <section class="booking" id="boeken">
+
+    <div class="booking-head">
+      <span>🌴 Samen de taal leren, met plezier!</span>
+      <p>
+        Kies hieronder eenvoudig een lesmoment voor je kind.
+      </p>
+    </div>
+
+    <form id="form">
+
+      <!-- STAP 1: DATUM -->
+
+      <section class="step">
+        <h2>
+          <span class="step-icon">📅</span>
+          1. Kies een datum
+        </h2>
+
+        <div class="calendarbar">
+          <button
+            type="button"
+            id="prev"
+            aria-label="Vorige maand"
+          >‹</button>
+
+          <b id="month"></b>
+
+          <button
+            type="button"
+            id="next"
+            aria-label="Volgende maand"
+          >›</button>
+        </div>
+
+        <div
+          class="calendar"
+          id="calendar"
+          aria-label="Kalender"
+        ></div>
+
+        <p class="calendar-key">
+          <span class="dot"></span>
+          Groen = beschikbare lessen
+        </p>
+
+        <p
+          id="calendar-error"
+          class="error"
+          role="status"
+          hidden
+        ></p>
+      </section>
+
+      <!-- STAP 2: LESTIJD -->
+
+      <section class="step">
+        <h2>
+          <span class="step-icon peach">🕒</span>
+          2. Kies een lestijd
+        </h2>
+
+        <p id="slot-label" class="hint">
+          Kies hierboven eerst een datum.
+        </p>
+
+        <div class="slots" id="slots"></div>
+      </section>
+
+      <!-- STAP 3: KINDEREN -->
+
+      <section class="step children-step">
+        <h2>
+          <span class="step-icon mint">👧</span>
+          3. Kinderen toevoegen
+        </h2>
+
+        <p class="hint">
+          Je kunt meerdere kinderen tegelijk aanmelden
+          (maximaal 6).
+        </p>
+
+        <div id="children">
+          <div class="child-entry">
+
+            <div class="child-title">
+              Kind 1
+            </div>
+
+            <label>
+              Naam van je kind
+              <input
+                class="child-name"
+                required
+                maxlength="160"
+                placeholder="Voornaam"
+              >
+            </label>
+
+            <label>
+              Leeftijd
+              <select class="child-age" required>
+                <option value="">
+                  Kies leeftijd
+                </option>
+              </select>
+            </label>
+
+          </div>
+        </div>
+
+        <button
+          type="button"
+          id="addChild"
+          class="add-child"
+        >
+          ＋ Nog een kind toevoegen
+        </button>
+      </section>
+
+      <!-- STAP 4: LOCATIE -->
+
+      <section class="step">
+        <h2>
+          <span class="step-icon">🏡</span>
+          4. Locatie
+        </h2>
+
+        <label>
+          Waar wil je de les volgen?
+
+          <select name="location" required>
+            <option value="tante">
+              Bij Tante
+            </option>
+
+            <option value="thuis">
+              Bij ons thuis (+ €2,50 per afspraak)
+            </option>
+
+            <option value="videobellen">
+              Videobellen (geen extra kosten)
+            </option>
+          </select>
+        </label>
+
+        <p class="hint">
+          Bij videobellen ontvang je de gegevens
+          voor de online les apart van Tante.
+        </p>
+
+        <label>
+          Opmerking (optioneel)
+
+          <textarea
+            name="note"
+            maxlength="400"
+            rows="2"
+            placeholder="Is er iets wat Tante moet weten?"
+          ></textarea>
+        </label>
+      </section>
+
+      <!-- STAP 5: CONTACTGEGEVENS -->
+
+      <section class="step">
+        <h2>
+          <span class="step-icon mint">✉️</span>
+          5. Contactgegevens
+        </h2>
+
+        <label>
+          Naam ouder / contactpersoon
+
+          <input
+            name="parent"
+            required
+            maxlength="100"
+            autocomplete="name"
+            placeholder="Je naam"
+          >
+        </label>
+
+        <label>
+          E-mailadres
+
+          <input
+            name="email"
+            type="email"
+            required
+            maxlength="200"
+            autocomplete="email"
+            placeholder="naam@voorbeeld.nl"
+          >
+        </label>
+
+        <div class="prices">
+          <p>
+            🌼 4 jaar · 30 minuten · € 7,50 per kind
+          </p>
+
+          <p>
+            🌟 Vanaf 5 jaar · 60 minuten · € 10 per kind
+          </p>
+        </div>
+
+        <div class="total">
+          <div>
+            <small>Totaal per les</small>
+            <b id="price">€ 0,00</b>
+          </div>
+
+          <span id="duration">
+            Kies een leeftijd
+          </span>
+        </div>
+
+        <label class="consent">
+          <input
+            name="consent"
+            type="checkbox"
+            required
+          >
+          Ik geef toestemming om mijn gegevens
+          voor de boeking en bevestiging te gebruiken.
+        </label>
+
+        <button
+          class="submit"
+          id="submit"
+          type="submit"
+        >
+          Afspraak definitief boeken →
+        </button>
+
+        <p
+          id="status"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </section>
+
+    </form>
+  </section>
+</main>
+
+<footer>
+  🌺 Papiaments met Tante · Met liefde voor onze taal
+  <a href="admin.html">Voor Tante</a>
+</footer>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
